@@ -1,0 +1,13 @@
+#
+# Makefile for standalone compilation
+#
+
+.PHONY: modules clean
+
+obj-m += parport_ip32.o
+
+modules:
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+
+clean:
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
