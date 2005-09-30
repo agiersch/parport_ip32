@@ -1,0 +1,12 @@
+File location in linux source tree:
+
+linux/Documentation
+	parport-lowlevel.txt
+
+linux/include/linux/
+	parport.h
+
+linux/drivers/parport/
+	Kconfig
+	Makefile
+	parport_pc.c
