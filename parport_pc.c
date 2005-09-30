@@ -2368,8 +2368,12 @@ void parport_pc_unregister_port (struct parport *p)
 	spin_lock(&ports_lock);
 	list_del_init(&priv->list);
 	spin_unlock(&ports_lock);
+#ifdef CONFIG_PARPORT_PC_FIFO
+#ifdef HAS_DMA
 	if (p->dma != PARPORT_DMA_NONE)
 		free_dma(p->dma);
+#endif
+#endif
 	if (p->irq != PARPORT_IRQ_NONE)
 		free_irq(p->irq, p);
 	release_region(p->base, 3);
