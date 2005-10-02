@@ -9,4 +9,5 @@ linux/include/linux/
 linux/drivers/parport/
 	Kconfig
 	Makefile
+	parport_ip32.c
 	parport_pc.c
