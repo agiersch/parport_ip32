@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.1 2005-10-02 14:17:57 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.2 2005-10-02 14:21:02 arnaud Exp $
  *
  * partially based on parport_pc.c by
  *	    Phil Blundell <philb@gnu.org>
@@ -30,7 +30,7 @@
  *
  * History:
  *
- * October 2005
+ * v0.1 -- Sun, 02 Oct 2005 16:18:54 +0200
  *	First working version. Only SPP/PS2 modes are supported,
  *	without interrupts.
  */
