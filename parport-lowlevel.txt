@@ -1098,8 +1098,8 @@ SYNOPSIS
 struct parport_operations {
 	...
 	unsigned char (*frob_control) (struct parport *port,
-	                               unsigned char mask,
-                                       unsigned char val);
+				       unsigned char mask,
+				       unsigned char val);
 	...
 };
 
