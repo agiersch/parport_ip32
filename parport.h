@@ -129,7 +129,7 @@ struct amiga_parport_state {
 };
 
 struct ip32_parport_state {
-	unsigned int ctr;
+	unsigned int dcr;
 	unsigned int ecr;
 };
 
