@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.6 2005-10-09 00:16:56 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.7 2005-10-09 00:19:00 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -1722,8 +1722,8 @@ module_init (parport_ip32_init);
 module_exit (parport_ip32_exit);
 
 /*--- Inform (X)Emacs about preferred coding style ---------------------*/
-
-/* Local Variables:
+/* 
+ * Local Variables:
  * mode: c
  * eval: (c-set-style "K&R")
  * tab-width: 8
