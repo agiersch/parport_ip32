@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.8 2005-10-10 00:29:56 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.9 2005-10-10 00:38:54 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -1508,7 +1508,7 @@ static __init int parport_ECP_supported (struct parport *p)
 	/* Set reverse direction (must be in PS2 mode) */
 	parport_ip32_data_reverse (p);
 	/* Test FIFO, no interrupt, no DMA */
-	parport_out (ECR_MODE_TST | ECR_IRQ | ECR_SERVICE, priv->regs.ecr); 
+	parport_out (ECR_MODE_TST | ECR_IRQ | ECR_SERVICE, priv->regs.ecr);
 	/* Enable interrupts */
 	parport_ip32_frob_econtrol (p, ECR_SERVICE, 0);
 
@@ -1522,7 +1522,7 @@ static __init int parport_ECP_supported (struct parport *p)
 	priv->readIntrThreshold = 0;
 	for (i = 0; i < 1024; i++) {
 		parport_out ((u8 )i, priv->regs.tFifo);
-		if (! priv->readIntrThreshold 
+		if (! priv->readIntrThreshold
 		    && parport_in (priv->regs.ecr) & ECR_SERVICE) {
 			/* readIntrThreshold reached */
 			priv->readIntrThreshold = i + 1;
@@ -1559,7 +1559,7 @@ static __init int parport_ECP_supported (struct parport *p)
 			pr_probe (p, "Invalid data in FIFO\n");
 			goto ecp_error;
 		}
-		if (! priv->writeIntrThreshold 
+		if (! priv->writeIntrThreshold
 		    && parport_in (priv->regs.ecr) & ECR_SERVICE) {
 			/* writeIntrThreshold reached */
 			priv->writeIntrThreshold = i + 1;
