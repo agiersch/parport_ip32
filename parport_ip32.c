@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.9 2005-10-10 00:38:54 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.10 2005-10-11 10:02:34 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -44,6 +44,15 @@
  *	EPP and ECP modes are not implemented.
  *
  * History:
+ *
+ * v0.6 -- ...
+ *	In parport_ip32_fifo_write_pio: check for BUSY before starting
+ *	transfer.
+ *	Improved parport_ip32_fifo_write_wait.
+ *	Corrected FIFO tests.
+ *	Added dump_parport_state in parport_ip32_debug_irq_handler.
+ *	Defined NO_OP().
+ *	Added MODULE_VERSION.
  *
  * v0.5 -- Mon, 10 Oct 2005 02:29:18 +0200
  *	Improved FIFO testing.
@@ -176,17 +185,29 @@
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
+#define DRV_VERSION	"0.6pre"
 
 MODULE_AUTHOR (DRV_AUTHOR);
 MODULE_DESCRIPTION (DRV_DESCRIPTION);
 MODULE_LICENSE (DRV_LICENSE);
+MODULE_VERSION (DRV_VERSION);
 
 #define PPIP32 DRV_NAME ": "
 
 static __initdata int verbose_probing = VERBOSE_PROBING;
+#if 0
+static __initdata int irq_line;
+static __initdata int dma_channel;
+static __initdata int ps2_enabled;
+static __initdata int fifo_enabled;
+static __initdata int epp_enabled;
+static __initdata int ecp_enabled;
+#endif
 
 /* We do not support more than one port */
 static struct parport *this_port = NULL;
+
+#define NO_OP()	do { } while (0)
 
 /*--- Parameters for SGI O2 built-in parallel port ---------------------*/
 
@@ -224,18 +245,18 @@ static struct parport *this_port = NULL;
  * use our own pointer for modules.
  */
 #if defined(MODULE)
-static struct sgi_mace __iomem *mace;
-static inline void __init iomap_mace_address (void)
+static struct sgi_mace __iomem *mace = NULL;
+static inline void iomap_mace_address (void)
 {
 	mace = ioremap (MACE_BASE, sizeof (struct sgi_mace));
 }
-static inline void __exit iounmap_mace_address (void)
+static inline void iounmap_mace_address (void)
 {
 	iounmap (mace);
 }
 #else /* ! defined(MODULE) */
-static inline void __init iomap_mace_address (void) { }
-static inline void __exit iounmap_mace_address (void) { }
+#define iomap_mace_address(...)		NO_OP()
+#define iounmap_mace_address(...)	NO_OP()
 #endif  /* ! defined(MODULE) */
 
 /*--- I/O register definitions -----------------------------------------*/
@@ -329,9 +350,9 @@ static inline int cnfgb_dma_channel (u8 reg)
 /* #define ECR_MODE_???	(0x05 << ECR_MODE_SHIFT) */
 #define ECR_MODE_TST	(0x06 << ECR_MODE_SHIFT)
 #define ECR_MODE_CFG	(0x07 << ECR_MODE_SHIFT)
-#define ECR_IRQ		BIT(4)
+#define ECR_ERRINTR	BIT(4)
 #define ECR_DMA		BIT(3)
-#define ECR_SERVICE	BIT(2)
+#define ECR_SERVINTR	BIT(2)
 #define ECR_F_FULL	BIT(1)
 #define ECR_F_EMPTY	BIT(0)
 
@@ -428,16 +449,30 @@ static inline void parport_out_rep (void __iomem *addr, const void *buf,
 #if defined(DEBUG_PARPORT_IP32)
 #	define pr_debug1(...)	printk (KERN_DEBUG __VA_ARGS__)
 #else
-#	define pr_debug1(...)	do { } while (0)
+#	define pr_debug1(...)	NO_OP()
 #endif
 
-#if defined(DEBUG_PARPORT_IP32)
-#if DEBUG_PARPORT_IP32 >= 2
+#if defined(DEBUG_PARPORT_IP32) && (DEBUG_PARPORT_IP32 >= 2)
+#	if ! defined (DUMP_PARPORT_STATE)
+#		define DUMP_PARPORT_STATE
+#	endif
+#	define dump_parport_state(...)	_dump_parport_state ( __VA_ARGS__ )
+#else
+#	define dump_parport_state(...)	NO_OP()
+#endif
 
-/* dump_parport_state - print register status of parport
+#if defined(DEBUG_IP32_IRQ)
+#	if ! defined (DUMP_PARPORT_STATE)
+#		define DUMP_PARPORT_STATE
+#	endif
+#endif
+
+#if defined(DUMP_PARPORT_STATE)
+
+/* _dump_parport_state - print register status of parport
  */
-static void dump_parport_state (char *str, struct parport *p,
-				int show_ecp_config)
+static void _dump_parport_state (struct parport *p, char *str,
+				 int show_ecp_config)
 {
 	/* here's hoping that reading these ports won't side-effect
 	 * anything underneath */
@@ -446,16 +481,16 @@ static void dump_parport_state (char *str, struct parport *p,
 
 	printk (KERN_DEBUG PPIP32 "%s: state (%s):\n", p->name, str);
 	if (priv->ecr_present) {
-		static const char * const ecr_modes[] = {"SPP", "PS2", "PPF",
-							 "ECP", "EPP", "???",
-							 "TST", "CFG"};
+		static const char ecr_modes[8][4] = {"SPP", "PS2", "PPF",
+						     "ECP", "EPP", "???",
+						     "TST", "CFG"};
 		u8 ecr = parport_in (priv->regs.ecr);
 		printk (KERN_DEBUG PPIP32 "    ecr=0x%02x", ecr);
 		printk (" %s",
 			ecr_modes[(ecr & ECR_MODE_MASK) >> ECR_MODE_SHIFT]);
-		if (ecr & ECR_IRQ)	printk (",nErrIntrEn");
+		if (ecr & ECR_ERRINTR)	printk (",nErrIntrEn");
 		if (ecr & ECR_DMA)	printk (",dmaEn");
-		if (ecr & ECR_SERVICE)	printk (",serviceIntr");
+		if (ecr & ECR_SERVINTR)	printk (",serviceIntr");
 		if (ecr & ECR_F_FULL)	printk (",f_full");
 		if (ecr & ECR_F_EMPTY)	printk (",f_empty");
 		printk ("\n");
@@ -494,10 +529,10 @@ static void dump_parport_state (char *str, struct parport *p,
 			i? "soft": "hard", dcr);
 		printk (" %s", (dcr & DCR_DIR)? "rev": "fwd");
 		if (dcr & DCR_IRQ)		printk (",ackIntEn");
-		if (! (dcr & DCR_SELECT))	printk (",N-SELECT-IN");
-		if (dcr & DCR_INIT)		printk (",N-INIT");
-		if (! (dcr & DCR_AUTOFD))	printk (",N-AUTOFD");
-		if (! (dcr & DCR_STROBE))	printk (",N-STROBE");
+		if (! (dcr & DCR_SELECT))	printk (",nSelectIn");
+		if (dcr & DCR_INIT)		printk (",nInit");
+		if (! (dcr & DCR_AUTOFD))	printk (",nAutoFD");
+		if (! (dcr & DCR_STROBE))	printk (",nStrobe");
 		printk ("\n");
 	}
 #define sep (f++? ',': ' ')
@@ -505,24 +540,19 @@ static void dump_parport_state (char *str, struct parport *p,
 		int f =0;
 		u8 dsr = parport_in (priv->regs.dsr);
 		printk (KERN_DEBUG PPIP32 "    dsr=0x%02x", dsr);
-		if (! (dsr & DSR_BUSY))		printk ("%cBUSY", sep);
-		if (dsr & DSR_ACK)		printk ("%cN-ACK", sep);
-		if (dsr & DSR_PERROR)		printk ("%cPERROR", sep);
-		if (dsr & DSR_SELECT)		printk ("%cSELECT", sep);
-		if (dsr & DSR_FAULT)		printk ("%cN-FAULT", sep);
-		if (! (dsr & DSR_PRINT))	printk ("%cN-PRINT", sep);
-		if (dsr & DSR_TIMEOUT)		printk ("%cTIMEOUT", sep);
+		if (! (dsr & DSR_BUSY))		printk ("%cBusy", sep);
+		if (dsr & DSR_ACK)		printk ("%cnAck", sep);
+		if (dsr & DSR_PERROR)		printk ("%cPError", sep);
+		if (dsr & DSR_SELECT)		printk ("%cSelect", sep);
+		if (dsr & DSR_FAULT)		printk ("%cnFault", sep);
+		if (! (dsr & DSR_PRINT))	printk ("%c(nPrint)", sep);
+		if (dsr & DSR_TIMEOUT)		printk ("%cTimeout", sep);
 		printk ("\n");
 	}
 #undef sep
 }
 
-#else /* DEBUG_PARPORT_IP32 < 2 */
-
-#define dump_parport_state(...) do { } while (0)
-
-#endif /* DEBUG_PARPORT_IP32 < 2 */
-#endif /* defined(DEBUG_PARPORT_IP32) */
+#endif /* defined(DUMP_PARPORT_STATE) */
 
 #define _pr_probe(...)							\
 	do { if (verbose_probing) printk ( __VA_ARGS__ ); } while (0)
@@ -755,6 +785,7 @@ static irqreturn_t parport_ip32_debug_irq_handler (int irq, void *dev_id,
 {
 	struct parport *port = dev_id;
 	printk (KERN_DEBUG "%s(%d, %s)\n", __FUNCTION__, irq, port->name);
+	_dump_parport_state (port, "irq", 0);
 	return IRQ_HANDLED;
 }
 
@@ -803,8 +834,8 @@ static __exit void parport_ip32_debug_irq_exit (struct parport *port)
 
 #else /* ! defined(DEBUG_IP32_IRQ) */
 
-#define parport_ip32_debug_irq_init(...)	do { } while (0);
-#define parport_ip32_debug_irq_exit(...)	do { } while (0);
+#define parport_ip32_debug_irq_init(...)	NO_OP()
+#define parport_ip32_debug_irq_exit(...)	NO_OP()
 
 #endif /* ! defined(DEBUG_IP32_IRQ) */
 
@@ -853,7 +884,7 @@ static void __iomem *parport_ip32_fifo_addr (struct parport *port,
 {
 	struct parport_ip32_private * const priv = PRIV(port);
 	void __iomem *fifo;
-	switch (mode) {
+	switch (mode & ECR_MODE_MASK) {
 	case ECR_MODE_PPF:	fifo = priv->regs.cFifo; break;
 	case ECR_MODE_ECP:	fifo = priv->regs.ecpDFifo; break;
 	default:		fifo = NULL;
@@ -861,17 +892,22 @@ static void __iomem *parport_ip32_fifo_addr (struct parport *port,
 	return fifo;
 }
 
-/* Wait until we can write something in the Fifo.  Returns the number of bytes
- * that can safely be written.  Returns 0 if there was some error.  */
-static int parport_ip32_fifo_write_wait (struct parport *port)
+/* parport_ip32_fifo_write_wait - Wait until FIFO empties a bit.
+ *
+ * Returns the number of bytes that can safely be written in the FIFO.  A
+ * return value of zero means that the calling function should terminate as
+ * fast as possible.  If an error is returned (value less than zero), the FIFO
+ * must be reset.
+ */
+static inline int parport_ip32_fifo_write_wait (struct parport *port)
 {
 	static const int polling_interval = 50; /* microseconds */
 	static const int nfault_check_interval = 100000; /* microseconds */
 	struct parport_ip32_private * const priv = PRIV(port);
-	unsigned char ecr;
-	unsigned long nfault_timeout;
 	unsigned long expire;
+	unsigned long nfault_timeout;
 	int skip_nfault_check;
+	unsigned char ecr;
 	int count;
 
 	nfault_timeout = usecs_to_jiffies (nfault_check_interval);
@@ -887,21 +923,18 @@ static int parport_ip32_fifo_write_wait (struct parport *port)
 				"%s: FIFO write timed out\n", port->name);
 			break;
 		}
-
-		/* Pending signal? */
-		if (signal_pending (current)) {
-			printk (KERN_DEBUG PPIP32
-				"%s: Signal pending\n", port->name);
-			break;
-		}
-
 		/* Anyone else waiting for the port? */
 		if (port->waithead) {
 			printk (KERN_DEBUG PPIP32
 				"%s: Somebody wants the port\n", port->name);
 			break;
 		}
-
+		/* Pending signal? */
+		if (signal_pending (current)) {
+			printk (KERN_DEBUG PPIP32
+				"%s: Signal pending\n", port->name);
+			break;
+		}
 		/* nFault? */
 		if (! skip_nfault_check &&
 		    ! (parport_ip32_read_status (port) & DSR_FAULT)) {
@@ -909,7 +942,6 @@ static int parport_ip32_fifo_write_wait (struct parport *port)
 				"%s: FIFO write error\n", port->name);
 			break;
 		}
-
 		/* Time to resched? */
 		if (need_resched ()) {
 			pr_debug (PPIP32 "%s: .. schedule\n", port->name);
@@ -919,13 +951,20 @@ static int parport_ip32_fifo_write_wait (struct parport *port)
 		if (port->irq == PARPORT_IRQ_NONE) {
 			/* Active polling */
 
-			/* Check for full Fifo */
-			ecr = parport_ip32_read_econtrol(port);
-			if (! (ecr & ECR_F_FULL)) {
-				count = (ecr & ECR_F_EMPTY)?
-					priv->fifo_depth: 1;
+			/* Check FIFO state */
+			ecr = parport_ip32_read_econtrol (port);
+			switch (ecr & (ECR_F_FULL | ECR_F_EMPTY)) {
+			case ECR_F_FULL | ECR_F_EMPTY:
+				goto fifo_error;
+			case ECR_F_EMPTY:
+				count = priv->fifo_depth;
+				break;
+			case 0:
+				count = 1;
 				break;
 			}
+			if (count)
+				break;
 
 			/* Wait... */
 			udelay (polling_interval);
@@ -935,50 +974,61 @@ static int parport_ip32_fifo_write_wait (struct parport *port)
 			}
 		} else { /* port->irq != PARPORT_IRQ_NONE */
 			/* Interrupt driven waiting */
-			int r;
 
 			/* Enable serviceIntr */
-			parport_ip32_frob_econtrol (port, ECR_SERVICE, 0);
+			parport_ip32_frob_econtrol (port, ECR_SERVINTR, 0);
 			/* Wait for interrupt */
-			r = parport_wait_event (port, nfault_timeout);
-			if (r < 0) {
-				pr_debug1 (PPIP32
-					   "%s: .. IRQ ERR\n", port->name);
+			parport_wait_event (port, nfault_timeout);
+			ecr = parport_ip32_read_econtrol (port);
+			/* Disable serviceIntr */
+			parport_ip32_frob_econtrol (port, ECR_SERVINTR,
+						    ECR_SERVINTR);
+
+			/* Check FIFO state */
+			switch (ecr & (ECR_F_FULL | ECR_F_EMPTY)) {
+			case ECR_F_FULL | ECR_F_EMPTY:
+				goto fifo_error;
+			case ECR_F_EMPTY:
+				count = priv->fifo_depth;
+				break;
+			case 0:
+				count = (ecr & ECR_SERVINTR)?
+					priv->writeIntrThreshold: 1;
 				break;
 			}
-			/* Check FIFO state */
-			ecr = parport_ip32_read_econtrol (port);
-			if (ecr & ECR_F_EMPTY) {
-				count = priv->fifo_depth;
-			} else if (ecr & ECR_SERVICE) {
-				count = priv->writeIntrThreshold;
-			} else if (! (ecr & ECR_F_FULL)) {
-				count = 1;
-			}
-			/* Disable serviceIntr */
-			parport_ip32_frob_econtrol (port,
-						    ECR_SERVICE, ECR_SERVICE);
 			if (count)
 				break;
-		} /* if (port->irq != PARPORT_IRQ_NONE) */
-	} /* while (1) */
+		}  /* port->irq != PARPORT_IRQ_NONE */
+	} /* for (count...) */
 
 	return count;
+
+fifo_error:
+	printk (KERN_DEBUG PPIP32 "%s: FIFO error in %s, ecr=0x%02x\n",
+		port->name, __FUNCTION__, parport_ip32_read_econtrol (port));
+	return -1;
 }
 
 /* Resets FIFO, and returns the number of bytes remaining in it.
  */
-static size_t parport_ip32_get_fifo_residue (struct parport *port, int mode)
+static int parport_ip32_get_fifo_residue (struct parport *port, int mode)
 {
 	struct parport_ip32_private * const priv = PRIV(port);
 	void __iomem *fifo = parport_ip32_fifo_addr (port, mode);
 	int residue;
 	int cnfga;
 
+	/* FIXME: we are missing one byte if the printer is off-line.  I don't
+	 * know how to detect this.  For the moment, the problem is (in most
+	 * cases) avoided by testing for BUSY in .._fifo_write_initialize.
+	 */
+
 	pr_debug1 ("%s(%s)\n", __FUNCTION__, port->name);
 
 	/* Stop all transfers */
-	parport_ip32_frob_control (port, DCR_STROBE, DCR_STROBE);
+	_dump_parport_state (port, "recovery A", 0);
+	parport_ip32_frob_control (port, DCR_STROBE, 0);
+	_dump_parport_state (port, "recovery B", 0);
 
 	/* Fill up FIFO */
 	for (residue = priv->fifo_depth; residue > 0; residue--) {
@@ -1014,19 +1064,48 @@ static size_t parport_ip32_get_fifo_residue (struct parport *port, int mode)
 	return residue;
 }
 
-/* Finalize a forward FIFO transfer.  Returns 1 if FIFO is empty and the state
- * of DSR_BUSY is low.  Returns -count otherwise, where count is the number of
- * bytes remaining in the FIFO.  Note that zero can be returned in case there
- * is a BUSY timeout.
+/* Initialize a forward FIFO transfer.  Reset FIFO and set appropriate mode.
+ * Returns 1 if the status of DSR_BUSY is low.  Returns zero otherwise.
+ */
+static int parport_ip32_fifo_write_initialize (struct parport *port, int mode)
+{
+	int buzy;
+
+	/* Reset Fifo, go in forward mode, and disable ackIntEn */
+	parport_ip32_write_econtrol (port,
+				     ECR_MODE_PS2 |
+				     ECR_ERRINTR |
+				     ECR_SERVINTR);
+	parport_ip32_write_control (port, DCR_SELECT | DCR_INIT);
+	parport_ip32_data_forward (port);
+	parport_ip32_disable_irq (port);
+
+	/* Go in desired mode */
+	parport_ip32_frob_set_mode (port, mode);
+
+	/* Wait for BUSY to get low. */
+	busy = parport_wait_peripheral (port,
+					PARPORT_STATUS_BUSY,
+					PARPORT_STATUS_BUSY);
+
+	return !buzy;
+}
+
+/* Finalize a forward FIFO transfer.  Returns 1 if FIFO is empty and the
+ * status of DSR_BUSY is low.  Returns -count otherwise, where count is the
+ * number of bytes remaining in the FIFO.  Note that zero can be returned in
+ * case there is a BUSY timeout.
  */
 static int parport_ip32_fifo_write_finalize (struct parport *port, int mode)
 {
-	unsigned long expire = jiffies + port->physport->cad->timeout;
+	unsigned long expire;
 	int empty, busy;
 	int counter;
+	int residue;
 
 	/* First, wait for an empty FIFO. */
 	empty = 0;
+	expire = jiffies + port->physport->cad->timeout;
 	/* Busy wait for 200us */
 	for (counter = 0; counter < 40; counter++) {
 		empty = parport_ip32_read_econtrol (port) & ECR_F_EMPTY;
@@ -1045,15 +1124,23 @@ static int parport_ip32_fifo_write_finalize (struct parport *port, int mode)
 			break;
 	}
 
-	if (! empty) {
-		return -parport_ip32_get_fifo_residue (port, mode);
-	}
+	/* Check for a potential residue (even if the FIFO looks empty) */
+	residue = parport_ip32_get_fifo_residue (port, mode);
+
+	/* Note that it is theoretically possible to have (!empty &&
+	 * !residue), if the FIFO empties between the last check for emptiness
+	 * and the moment we stop all transfers in
+	 * parport_ip32_get_fifo_residue.  */
 
 	/* Then, wait for BUSY to get low. */
 	busy = parport_wait_peripheral (port,
 					PARPORT_STATUS_BUSY,
 					PARPORT_STATUS_BUSY);
-	return !busy;
+	if (residue) {
+		return -residue;
+	} else {
+		return !busy;
+	}
 }
 
 static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
@@ -1062,7 +1149,8 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 {
 	const unsigned char *bufp = buf;
 	void __iomem *fifo;
-	size_t left, written;
+	size_t left = len;
+	size_t written = 0;
 	int r;
 
 	pr_debug1 (PPIP32 "%s: -> %s: len=%lu\n",
@@ -1075,31 +1163,34 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 			"%s: NULL FIFO address!\n", port->name);
 		return 0;
 	}
-	/* Reset Fifo, go in forward mode, and disable ackIntEn */
-	parport_ip32_write_econtrol (port,
-				     ECR_MODE_PS2 | ECR_IRQ | ECR_SERVICE);
-	parport_ip32_write_control (port, DCR_SELECT | DCR_INIT);
-	parport_ip32_data_forward (port);
-	parport_ip32_disable_irq (port);
-	/* Go in desired mode */
-	parport_ip32_frob_set_mode (port, mode);
+
+	if (! parport_ip32_fifo_write_initialize (port, mode)) {
+		printk (KERN_DEBUG PPIP32 "%s: BUSY timeout\n", port->name);
+		goto abort_transfer;
+	}
+
+	_dump_parport_state (port, "start write pio", 0);
 
 	port->physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
 	for (left = len; left > 0; /*nop*/) {
-		size_t count;
+		int count;
 
 		pr_debug (PPIP32 "%s: loooop...\n", port->name);
 
 		count = parport_ip32_fifo_write_wait (port);
-		if (count == 0) {
+		if (count < 0) {
+			/* FIFO is in a seriously bad state, abort
+			 * immediately */
+			goto abort_transfer;
+		} else if (count == 0) {
 			break;
 		} else if (count > left) {
 			count = left;
 		}
 
-		pr_debug (PPIP32 "%s: .. push %lu byte%s\n", port->name,
-			   (unsigned long)count, (count > 1)? "s": "");
+		pr_debug1 (PPIP32 "%s: .. push %lu byte%s\n", port->name,
+			  (unsigned long)count, (count > 1)? "s": "");
 
 		/* Write next bytes to Fifo */
 		if (count == 1) {
@@ -1111,10 +1202,14 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 		left -= count;
 	} /* for (left = len; ...) */
 
+	_dump_parport_state (port, "end write pio", 0);
+
 	if (left) {
-		pr_debug1 (PPIP32 "%s: .. transfer aborted\n", port->name);
+		pr_debug1 (PPIP32 "%s: .. transfer aborted (left=%lu)\n",
+			   port->name, (unsigned long)left);
 	} else /* (left == 0) */ {
-		pr_debug1 (PPIP32 "%s: .. transfer completed\n", port->name);
+		pr_debug1 (PPIP32 "%s: .. transfer completed (left=%lu)\n",
+			   port->name, (unsigned long)left);
 	} /* if (left == 0) */
 
 	r = parport_ip32_fifo_write_finalize (port, mode);
@@ -1126,14 +1221,22 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 	}
 	written = (len - left);
 
+abort_transfer:
+	_dump_parport_state (port, "final0 write pio", 0);
+
 	port->physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
 
 	/* reset FIFO */
 	parport_ip32_write_econtrol (port,
-				     ECR_MODE_PS2 | ECR_IRQ | ECR_SERVICE);
+				     ECR_MODE_PS2 |
+				     ECR_ERRINTR |
+				     ECR_SERVINTR);
 
-	pr_debug1 (PPIP32 "%s: <- %s: left=%lu\n",
-		   port->name, __FUNCTION__, (unsigned long)left);
+	_dump_parport_state (port, "final1 write pio", 0);
+
+	pr_debug1 (PPIP32 "%s: <- %s: written=%lu, left=%lu\n",
+		   port->name, __FUNCTION__,
+		   (unsigned long)written, (unsigned long)left);
 
 	return written;
 }
@@ -1179,7 +1282,10 @@ static size_t parport_ip32_compat_write_data (struct parport *port,
 
 /*--- Default operations -----------------------------------------------*/
 
-static __initdata struct parport_operations parport_ip32_ops = {
+/* Do not uncomment the const qualifier: this causes compilation error
+ * ("parport_ip32_ops causes a section type conflict") because of the
+ * __initdata qualifier.  */
+static __initdata /*const*/ struct parport_operations parport_ip32_ops = {
 	.write_data	= parport_ip32_write_data,
 	.read_data	= parport_ip32_read_data,
 
@@ -1259,14 +1365,14 @@ static __init int parport_ECR_supported (struct parport *p)
 	if (r != ECR_F_EMPTY)
 		goto no_reg;
 
-	r = ECR_MODE_PS2 | ECR_IRQ | ECR_SERVICE;
+	r = ECR_MODE_PS2 | ECR_ERRINTR | ECR_SERVINTR;
 	parport_out (r, priv->regs.ecr);
 	if (parport_in (priv->regs.ecr) != (r | ECR_F_EMPTY))
 		goto no_reg;
 
 	pr_probe (p, "Found working ECR register\n");
 	priv->ecr_present = 1;
-	priv->ecr_init = ECR_MODE_SPP | ECR_IRQ | ECR_SERVICE;
+	priv->ecr_init = ECR_MODE_SPP | ECR_ERRINTR | ECR_SERVINTR;
 	parport_ip32_write_control (p, DCR_SELECT | DCR_INIT);
 	parport_ip32_frob_set_mode (p, ECR_MODE_SPP);
 	return 1;
@@ -1440,7 +1546,7 @@ static __init int parport_ECP_supported (struct parport *p)
 	}
 
 	/* Reset FIFO */
-	parport_out (ECR_MODE_PS2, priv->regs.ecr);
+	parport_out (ECR_MODE_SPP, priv->regs.ecr);
 	/* Configuration mode */
 	parport_out (ECR_MODE_CFG, priv->regs.ecr);
 
@@ -1495,22 +1601,11 @@ static __init int parport_ECP_supported (struct parport *p)
 	priv->pword = pword;
 	pr_probe (p, "PWord is %d bits\n", 8 * priv->pword);
 
-	/* Find out:
-	 * - FIFO depth;
-	 * - readIntrThreshold (number of PWords we can read if we get an
-	 *   interrupt);
-	 * - writeIntrThreshold (number of PWords we know we can write if we
-	 *   get an interrupt).
-	 */
-
 	/* Reset FIFO */
-	parport_out (ECR_MODE_PS2, priv->regs.ecr);
-	/* Set reverse direction (must be in PS2 mode) */
-	parport_ip32_data_reverse (p);
+	parport_out (ECR_MODE_SPP, priv->regs.ecr);
 	/* Test FIFO, no interrupt, no DMA */
-	parport_out (ECR_MODE_TST | ECR_IRQ | ECR_SERVICE, priv->regs.ecr);
-	/* Enable interrupts */
-	parport_ip32_frob_econtrol (p, ECR_SERVICE, 0);
+	parport_out (ECR_MODE_TST | ECR_ERRINTR | ECR_SERVINTR,
+		     priv->regs.ecr);
 
 	/* FIFO must be empty now */
 	if (! (parport_in (priv->regs.ecr) & ECR_F_EMPTY)) {
@@ -1518,20 +1613,15 @@ static __init int parport_ECP_supported (struct parport *p)
 		goto ecp_error;
 	}
 
+	/* Find out FIFO depth. */
 	priv->fifo_depth = 0;
-	priv->readIntrThreshold = 0;
 	for (i = 0; i < 1024; i++) {
-		parport_out ((u8 )i, priv->regs.tFifo);
-		if (! priv->readIntrThreshold
-		    && parport_in (priv->regs.ecr) & ECR_SERVICE) {
-			/* readIntrThreshold reached */
-			priv->readIntrThreshold = i + 1;
-		}
 		if (parport_in (priv->regs.ecr) & ECR_F_FULL) {
 			/* FIFO full */
-			priv->fifo_depth = i + 1;
+			priv->fifo_depth = i;
 			break;
 		}
+		parport_out ((u8 )i, priv->regs.tFifo);
 	}
 	if (i >= 1024) {
 		pr_probe (p, "Can't fill FIFO\n");
@@ -1542,17 +1632,12 @@ static __init int parport_ECP_supported (struct parport *p)
 		goto ecp_error;
 	}
 	pr_probe (p, "FIFO is %d PWords deep\n", priv->fifo_depth);
-	if (! priv->readIntrThreshold) {
-		pr_probe (p, "Can't get readIntrThreshold\n");
-		goto ecp_error;
-	}
-	pr_probe (p, "readIntrThreshold is %d\n", priv->readIntrThreshold);
 
-	/* Set forward direction (must be in PS2 mode) */
-	parport_ip32_data_forward (p);
 	/* Enable interrupts */
-	parport_ip32_frob_econtrol (p, ECR_SERVICE, 0);
+	parport_ip32_frob_econtrol (p, ECR_SERVINTR, 0);
 
+	/* Find out writeIntrThreshold: number of PWords we know we can write
+	 * if we get an interrupt. */
 	priv->writeIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
 		if (parport_in (priv->regs.tFifo) != (u8 )i) {
@@ -1560,7 +1645,7 @@ static __init int parport_ECP_supported (struct parport *p)
 			goto ecp_error;
 		}
 		if (! priv->writeIntrThreshold
-		    && parport_in (priv->regs.ecr) & ECR_SERVICE) {
+		    && parport_in (priv->regs.ecr) & ECR_SERVINTR) {
 			/* writeIntrThreshold reached */
 			priv->writeIntrThreshold = i + 1;
 		}
@@ -1582,6 +1667,33 @@ static __init int parport_ECP_supported (struct parport *p)
 		pr_probe (p, "Can't empty FIFO\n");
 		goto ecp_error;
 	}
+
+	/* Reset FIFO */
+	parport_out (ECR_MODE_PS2, priv->regs.ecr);
+	/* Set reverse direction (must be in PS2 mode) */
+	parport_ip32_data_reverse (p);
+	/* Test FIFO, no interrupt, no DMA */
+	parport_out (ECR_MODE_TST | ECR_ERRINTR | ECR_SERVINTR,
+		     priv->regs.ecr);
+	/* Enable interrupts */
+	parport_ip32_frob_econtrol (p, ECR_SERVINTR, 0);
+
+	/* Find out readIntrThreshold: number of PWords we can read if we get
+	 * an interrupt. */
+	priv->readIntrThreshold = 0;
+	for (i = 0; i < priv->fifo_depth; i++) {
+		parport_out (0xaa, priv->regs.tFifo);
+		if (! priv->readIntrThreshold
+		    && parport_in (priv->regs.ecr) & ECR_SERVINTR) {
+			/* readIntrThreshold reached */
+			priv->readIntrThreshold = i + 1;
+		}
+	}
+	if (! priv->readIntrThreshold) {
+		pr_probe (p, "Can't get readIntrThreshold\n");
+		goto ecp_error;
+	}
+	pr_probe (p, "readIntrThreshold is %d\n", priv->readIntrThreshold);
 
 	/* Go back to mode 000 */
 	parport_ip32_write_econtrol (p, ECR_MODE_SPP);
@@ -1662,7 +1774,7 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 		.regs =		*regs,
 
 		.dcr_init =	DCR_SELECT | DCR_INIT,
-		.ecr_init =	ECR_MODE_SPP | ECR_IRQ | ECR_SERVICE,
+		.ecr_init =	ECR_MODE_SPP | ECR_ERRINTR | ECR_SERVINTR,
 		.dcr_cache =	0,
 		.dcr_writable =	DCR_SELECT | DCR_INIT |
 				DCR_AUTOFD | DCR_STROBE,
@@ -1675,7 +1787,7 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 	p->private_data = priv;
 	p->base_hi = base_hi;
 
-	dump_parport_state ("begin init", p, modes & PARPORT_MODE_ECP);
+	dump_parport_state (p, "begin init", modes & PARPORT_MODE_ECP);
 
 	/* First, check if we can use the Extended Control Register. */
 	parport_ECR_supported (p);
@@ -1715,7 +1827,7 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 	parport_ip32_write_control (p, priv->dcr_init);
 	parport_ip32_write_data (p, 0x00);
 
-	dump_parport_state ("end init", p, 0);
+	dump_parport_state (p, "end init", 0);
 
 	/* Print what we found */
 	printk (KERN_INFO "%s: SGI IP32 at 0x%lx", p->name, p->base);
@@ -1787,7 +1899,7 @@ static int __init parport_ip32_init (void)
 	struct parport_ip32_regs regs;
 	int modes;
 
-	printk (KERN_INFO PPIP32 "%s\n", DRV_DESCRIPTION);
+	printk (KERN_INFO PPIP32 "%s v%s\n", DRV_DESCRIPTION, DRV_VERSION);
 
 	iomap_mace_address ();
 	if (mace == NULL) {
