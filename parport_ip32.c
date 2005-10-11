@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.10 2005-10-11 10:02:34 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.11 2005-10-11 12:14:00 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -999,7 +999,7 @@ static inline int parport_ip32_fifo_write_wait (struct parport *port)
 			if (count)
 				break;
 		}  /* port->irq != PARPORT_IRQ_NONE */
-	} /* for (count...) */
+	} /* while (1) */
 
 	return count;
 
@@ -1069,7 +1069,7 @@ static int parport_ip32_get_fifo_residue (struct parport *port, int mode)
  */
 static int parport_ip32_fifo_write_initialize (struct parport *port, int mode)
 {
-	int buzy;
+	int busy;
 
 	/* Reset Fifo, go in forward mode, and disable ackIntEn */
 	parport_ip32_write_econtrol (port,
@@ -1088,7 +1088,7 @@ static int parport_ip32_fifo_write_initialize (struct parport *port, int mode)
 					PARPORT_STATUS_BUSY,
 					PARPORT_STATUS_BUSY);
 
-	return !buzy;
+	return !busy;
 }
 
 /* Finalize a forward FIFO transfer.  Returns 1 if FIFO is empty and the
