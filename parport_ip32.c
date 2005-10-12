@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.14 2005-10-12 21:12:22 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.15 2005-10-12 21:14:27 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -231,7 +231,7 @@ typedef unsigned int	parport_ip32_byte;
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.6pre"
+#define DRV_VERSION	"0.6"
 
 #define PPIP32 DRV_NAME ": "
 
