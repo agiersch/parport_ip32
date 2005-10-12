@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.13 2005-10-12 14:44:30 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.14 2005-10-12 21:12:22 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -46,6 +46,8 @@
  * History:
  *
  * v0.6 -- ...
+ *	Added possibility to disable FIFO at run-time.
+ *	Added PARPORT_IP32_FIFO in KConfig.
  *	More consistent names for register macros.
  *	Check for nFault too, before starting compat_write_data.
  *	Added some module_param.
@@ -112,22 +114,13 @@
 #define DEBUG_PARPORT_IP32	1 /* disable for production */
 
 /* If defined, include IRQ handlers for MACEISA_PAR_{CTXA,CTXB,MERR}_IRQ
- * interrupts */
-#define DEBUG_IP32_IRQ		/* disable for production */
+ * interrupts.  I don't know if this interrupts have any utility.  */
+#undef DEBUG_IP32_IRQ		/* disable for production */
 
-/* Define to enable FIFO modes. */
-#define PARPORT_IP32_FIFO
-
-/* Following modes need CONFIG_PARPORT_1284. */
-
-/* Define to enable PS2 support. */
+/* Un-define to disable support for a particular mode. */
 #define PARPORT_IP32_PS2
-
-/* Define to enable EPP support. */
-#undef PARPORT_IP32_EPP		/* unimplemented */
-
-/* Define to enable ECP support.  Needs PARPORT_IP32_FIFO. */
-#undef PARPORT_IP32_ECP	        /* unimplemented */
+#define PARPORT_IP32_EPP	/* not implemented */
+#define PARPORT_IP32_ECP	/* not implemented */
 
 /*----------------------------------------------------------------------*/
 
@@ -224,7 +217,7 @@ typedef unsigned int	parport_ip32_byte;
 #	undef PARPORT_IP32_ECP
 #endif
 
-#if ! defined(PARPORT_IP32_FIFO)
+#if ! defined(CONFIG_PARPORT_IP32_FIFO)
 #	undef PARPORT_IP32_ECP
 #endif
 
@@ -245,15 +238,10 @@ typedef unsigned int	parport_ip32_byte;
 static int param_verbose_probing =	DEFAULT_VERBOSE_PROBING;
 static int param_irq =			PARPORT_IP32_IRQ;
 static int param_dma =			PARPORT_IP32_DMA;
-#if 0
-/* operation modes */
-static int use_fifo;
-static int use_dma;
-/* tests */
-static bool ps2_enabled;
-static bool fifo_enabled;
-static bool epp_enabled;
-static bool ecp_enabled;
+
+#if defined(CONFIG_PARPORT_IP32_FIFO)
+static int use_fifo =			1;
+static int use_dma =			1;
 #endif
 
 /* We do not support more than one port */
@@ -319,7 +307,7 @@ struct parport_ip32_regs {
 
 /* ECP Configuration Register B */
 #define CNFGB_COMPRESS	BIT(7)
-#define CNFGB_INTR	BIT(6)
+#define CNFGB_INTRVAL	BIT(6)
 #define CNFGB_IRQ_MASK	(BIT(5) | BIT(4) | BIT(3))
 #define CNFGB_IRQ_SHIFT	3
 #define CNFGB_IRQ(r)	cnfgb_irq_line(r) /* defined below */
@@ -521,7 +509,7 @@ static void _dump_parport_state (struct parport *p, char *str,
 		printk ("\n");
 		printk (KERN_DEBUG PPIP32 "    cnfgB=0x%02x", cnfgB);
 		printk (" irq=%u,dma=%u", CNFGB_IRQ(cnfgB), CNFGB_DMA(cnfgB));
-		printk (",intrValue=%d", !!(cnfgB & CNFGB_INTR));
+		printk (",intrValue=%d", !!(cnfgB & CNFGB_INTRVAL));
 		if (cnfgB & CNFGB_COMPRESS)	printk (",compress");
 		printk ("\n");
 	}
@@ -561,6 +549,10 @@ static void _dump_parport_state (struct parport *p, char *str,
 #define pr_probe(p, ...)						\
 	do { _pr_probe (KERN_DEBUG PPIP32 "0x%lx: ", (p)->base);	\
 	     _pr_probe ( __VA_ARGS__ ); } while (0)
+
+#define NOT_IMPLEMENTED(p, m)						\
+	printk (KERN_DEBUG PPIP32					\
+		"%s: %s not implemented, %s\n", (p)->name, __FUNCTION__, m)
 
 /*--- Some utility function to manipulate ECR register -----------------*/
 
@@ -860,13 +852,17 @@ static bool parport_ip32_clear_epp_timeout (struct parport *p)
 	return cleared;
 }
 
+#if defined(PARPORT_IP32_EPP)
+
 /*
  * TODO: insert here parport_ip32_epp_{read,write}_{data,address}
  */
 
+#endif /* defined(PARPORT_IP32_EPP) */
+
 /*--- ECP mode functions (FIFO) ----------------------------------------*/
 
-#if defined(PARPORT_IP32_FIFO)
+#if defined(CONFIG_PARPORT_IP32_FIFO)
 
 /* Return address for fifo register, according to mode */
 static inline void __iomem *parport_ip32_fifo_addr (struct parport *port,
@@ -1054,9 +1050,8 @@ static size_t parport_ip32_fifo_write_block_dma (struct parport *port,
 						 const void *buf, size_t len,
 						 int flags, byte mode)
 {
-	printk (KERN_DEBUG PPIP32
-		"%s: %s not implemented\n", port->name, __FUNCTION__);
-	return 0;
+	NOT_IMPLEMENTED (port, "reverting to PIO mode");
+	return parport_ip32_fifo_write_block_pio (port, buf, len, flags, mode);
 }
 
 /* Initialize a forward FIFO transfer.  Reset FIFO and set appropriate mode.
@@ -1225,7 +1220,7 @@ static size_t parport_ip32_fifo_write_block (struct parport *port,
 
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
-	if (port->dma == PARPORT_DMA_NONE) {
+	if (!use_dma || port->dma == PARPORT_DMA_NONE) {
 		written = parport_ip32_fifo_write_block_pio (port, buf, len,
 							     flags, mode);
 	} else {
@@ -1256,19 +1251,32 @@ static size_t parport_ip32_compat_write_data (struct parport *port,
 					      int flags)
 {
 	struct parport * const physport = port->physport;
+	size_t written;
 
 	pr_debug ("%s(%s, ...)\n", __FUNCTION__, port->name);
 
 	/* Special case: a timeout of zero means we cannot call schedule().
 	 * Also if O_NONBLOCK is set then use the default implementation. */
-	if (physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK)
-		return parport_ieee1284_write_compat (port, buf, len, flags);
-
-	return parport_ip32_fifo_write_block (port, buf, len,
-					      flags, ECR_MODE_PPF);
+	if (!use_fifo
+	    || physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK)
+		written = parport_ieee1284_write_compat (port, buf, len,
+							 flags);
+	else {
+		written = parport_ip32_fifo_write_block (port, buf, len,
+							 flags, ECR_MODE_PPF);
+	}
+	return written;
 }
 
-#endif /* defined(PARPORT_IP32_FIFO) */
+#if defined(PARPORT_IP32_ECP)
+
+/*
+ * TODO: insert here parport_ip32_ecp_{read,write}_{data,address}
+ */
+
+#endif /* defined(PARPORT_IP32_ECP) */
+
+#endif /* defined(CONFIG_PARPORT_IP32_FIFO) */
 
 /*--- Default operations -----------------------------------------------*/
 
@@ -1513,6 +1521,8 @@ static __init bool parport_PS2_supported (struct parport *p)
 	if (parport_ip32_read_data (p) != 0xaa)
 		ok = true;
 
+	pr_probe (p, "PS2 mode%s supported\n", ok? "": " not");
+
 	/* cancel input mode */
 	parport_ip32_data_forward (p);
 
@@ -1529,7 +1539,6 @@ static __init bool parport_PS2_supported (struct parport *p)
 		parport_ip32_write_econtrol (p, oecr);
 	}
 
-	pr_probe (p, "PS2 mode%s supported\n", ok? "": " not");
 	return ok;
 }
 
@@ -1542,16 +1551,44 @@ static __init bool parport_PS2_supported (struct parport *p)
 /* Check for Enhanced Parallel Port. */
 static __init bool parport_EPP_supported (struct parport *p)
 {
-	printk (KERN_DEBUG PPIP32
-		"%s: %s not implemented\n", port->name, __FUNCTION__);
-	return false;
+	struct parport_ip32_private * const priv = PRIV(p);
+	byte oecr = 0;
+	bool ok;
+	
+	if (priv->ecr_present) {
+		oecr = parport_ip32_read_econtrol (p);
+		parport_ip32_write_econtrol (p, ECR_MODE_EPP);
+	}
+
+	/* If EPP timeout bit clear then EPP available */
+	ok = parport_ip32_clear_epp_timeout (p);
+
+	pr_probe (p, "EPP mode%s supported\n", ok? "": " not");
+
+	if (ok) {
+		/* Set up access functions to use EPP hardware. */
+#if 0				/* not implemented */
+		p->ops->epp_read_data = parport_ip32_epp_read_data;
+		p->ops->epp_write_data = parport_ip32_epp_write_data;
+		p->ops->epp_read_addr = parport_ip32_epp_read_addr;
+		p->ops->epp_write_addr = parport_ip32_epp_write_addr;
+		p->modes |= PARPORT_MODE_EPP;
+		pr_probe (p, "Support for EPP mode enabled\n");
+#endif
+	}
+
+	if (priv->ecr_present) {
+		parport_ip32_write_econtrol (p, oecr);
+	}
+
+	return ok;
 }
 
 #else  /* ! defined(PARPORT_IP32_EPP) */
 #define parport_EPP_supported(...)	parport_ip32_not_supported()
 #endif
 
-#if defined(PARPORT_IP32_FIFO)
+#if defined(CONFIG_PARPORT_IP32_FIFO)
 
 /* Check for Extended Capabilites Port.  Actually search FIFO parameters. */
 static __init bool parport_ECP_supported (struct parport *p)
@@ -1595,10 +1632,11 @@ static __init bool parport_ECP_supported (struct parport *p)
 	}
 
 	/* Check for interrupt conflict */
-	if (! (configb & CNFGB_INTR)) {
+	if (! (configb & CNFGB_INTRVAL) && p->irq != PARPORT_IRQ_NONE) {
 		printk (KERN_NOTICE PPIP32
 			"0x%lx: IRQ conflict detected, disabling IRQ\n",
 			p->base);
+		p->irq = PARPORT_IRQ_NONE;
 	}
 
 	/* Check for compression support */
@@ -1726,10 +1764,18 @@ static __init bool parport_ECP_supported (struct parport *p)
 	/* Enable FIFO compatibility mode */
 	p->ops->compat_write_data = parport_ip32_compat_write_data;
 	p->modes |= PARPORT_MODE_COMPAT;
+	pr_probe (p, "Support for compatibility mode enabled\n");
 
 #if defined(PARPORT_IP32_ECP)
-	/* TODO: Enable ECP modes */
+#if 0				/* not implemented */
+	p->ops->ecp_write_data = parport_ip32_ecp_write_data,
+	p->ops->ecp_read_data  = parport_ip32_ecp_read_data,
+	p->ops->ecp_write_addr = parport_ip32_ecp_write_addr,
+	p->modes |= PARPORT_MODE_ECP;
+	pr_probe (p, "Support for ECP modes enabled\n");
+#endif
 #endif /* defined(PARPORT_IP32_ECP) */
+
 	return true;
 
 ecp_error:
@@ -1738,8 +1784,8 @@ ecp_error:
 	return false;
 }
 
-#else /* ! defined(PARPORT_IP32_FIFO) */
-#define parport_ip32_ECP_supported(...)	parport_ip32_not_supported()
+#else /* ! defined(CONFIG_PARPORT_IP32_FIFO) */
+#define parport_ECP_supported(...)	parport_ip32_not_supported()
 #endif
 
 /* parport_ip32_probe_port - probe and register a new port
@@ -1982,6 +2028,16 @@ MODULE_PARM_DESC (irq, "IRQ line (-1 to disable)");
 #if 0				/* unused */
 module_param_named (dma, param_dma, int, S_IRUGO);
 MODULE_PARM_DESC (dma, "DMA channel (-1 to disable)");
+#endif
+
+#if defined(CONFIG_PARPORT_IP32_FIFO)
+module_param (use_fifo, bool, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC (use_fifo, "Use hardare FIFO modes");
+#endif
+
+#if 0				/* unused */
+module_param (use_dma, bool, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC (use_dma, "Use DMA if available");
 #endif
 
 /*--- Inform (X)Emacs about preferred coding style ---------------------*/

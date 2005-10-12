@@ -91,12 +91,20 @@ config PARPORT_ARC
 	select PARPORT_NOT_PC
 
 config PARPORT_IP32
-	tristate "SGI IP32 builtin port"
-	depends on SGI_IP32 && PARPORT
+	tristate "SGI IP32 builtin port (EXPERIMENTAL)"
+	depends on SGI_IP32 && PARPORT && EXPERIMENTAL
 	select PARPORT_NOT_PC
 	help
 	  Say Y here if you need support for the parallel port on
 	  SGI O2 machines. If in doubt, saying N is the safe plan.
+
+config PARPORT_IP32_FIFO
+	bool "Use FIFO if available (EXPERIMENTAL)"
+	depends on PARPORT_IP32 && EXPERIMENTAL
+	help
+	  The parallel port chipset on SGI O2 provide hardware that
+	  can speed up printing. Say Y here if you want to take
+	  advantage of that.
 
 config PARPORT_AMIGA
 	tristate "Amiga builtin port"
