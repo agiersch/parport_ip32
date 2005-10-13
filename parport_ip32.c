@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.15 2005-10-12 21:14:27 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.16 2005-10-13 08:52:10 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -1203,7 +1203,7 @@ static size_t parport_ip32_fifo_write_block (struct parport *port,
 	if (len == 0) {
 		/* There is nothing to do */
 		goto out;
-	} 
+	}
 	if (! parport_ip32_fifo_write_initialize (port, mode)) {
 		/* Avoid to flood the logs */
 		if (ready_before) {
@@ -1554,7 +1554,7 @@ static __init bool parport_EPP_supported (struct parport *p)
 	struct parport_ip32_private * const priv = PRIV(p);
 	byte oecr = 0;
 	bool ok;
-	
+
 	if (priv->ecr_present) {
 		oecr = parport_ip32_read_econtrol (p);
 		parport_ip32_write_econtrol (p, ECR_MODE_EPP);
