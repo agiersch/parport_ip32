@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.17 2005-10-13 09:10:05 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.18 2005-10-13 21:58:06 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -44,6 +44,10 @@
  *	EPP and ECP modes are not implemented.
  *
  * History:
+ *
+ * v0.7 -- Thu, 13 Oct 2005 23:49:23 +0200
+ *	Fix typo: left instead of len if parport_ip32_write_block_pio!
+ *	Moved DRV_* at top of source file.
  *
  * v0.6 -- Thu, 13 Oct 2005 11:09:08 +0200
  *	Added possibility to disable FIFO at run-time.
@@ -102,6 +106,14 @@
  * would certainly be to make the corresponding code arch-independent, with
  * some generic functions for register access.
  */
+
+/*----------------------------------------------------------------------*/
+
+#define DRV_NAME	"parport_ip32"
+#define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
+#define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
+#define DRV_LICENSE	"GPL"
+#define DRV_VERSION	"0.7"
 
 /*--- Some configuration defines ---------------------------------------*/
 
@@ -226,12 +238,6 @@ typedef unsigned int	parport_ip32_byte;
 #else
 #	define DEFAULT_VERBOSE_PROBING 0
 #endif
-
-#define DRV_NAME	"parport_ip32"
-#define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
-#define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
-#define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.6"
 
 #define PPIP32 DRV_NAME ": "
 
@@ -1009,7 +1015,7 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 	const unsigned char *bufp = buf;
 	size_t left = len;
 
-	while (len > 0) {
+	while (left > 0) {
 		int count;
 
 		count = parport_ip32_fifo_write_pio_wait (port);
