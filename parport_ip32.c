@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.16 2005-10-13 08:52:10 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.17 2005-10-13 09:10:05 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -45,7 +45,7 @@
  *
  * History:
  *
- * v0.6 -- ...
+ * v0.6 -- Thu, 13 Oct 2005 11:09:08 +0200
  *	Added possibility to disable FIFO at run-time.
  *	Added PARPORT_IP32_FIFO in KConfig.
  *	More consistent names for register macros.
