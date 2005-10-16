@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.19 2005-10-14 23:00:29 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.20 2005-10-16 20:37:11 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -46,9 +46,14 @@
  * History:
  *
  * v0.8 -- ...
+ *	Corrected parport_ip32_get_fifo_residue.
+ *	Added parport_ip32_drain_fifo.
+ *	Timeout proportionnal to writeIntrThreshold in
+ *	 parport_ip32_fifo_write_pio_wait
+ *	It's ok to feed NULL pointer to kfree.
  *	Use __func__ instead of __FUNCTION__.
  *	Get rid of parport_ip32_frob_set_mode,
- *	introduce parport_ip32_set_mode.
+ *	 introduce parport_ip32_set_mode.
  *
  * v0.7 -- Thu, 13 Oct 2005 23:49:23 +0200
  *	Fix typo: left instead of len if parport_ip32_write_block_pio!
@@ -63,7 +68,7 @@
  *	Checked types.
  *	Moved {init,final}ization in parport_ip32_fifo_write_block.
  *	In parport_ip32_fifo_write_pio: check for BUSY before starting
- *	transfer.
+ *	 transfer.
  *	Improved parport_ip32_fifo_write_wait.
  *	Corrected FIFO tests.
  *	Added dump_parport_state in parport_ip32_debug_irq_handler.
@@ -84,14 +89,14 @@
  *	Added Compatibility FIFO mode (PIO).
  *      Added code for EPP support (not tested).
  *      Disable interrupts: it is too slow to get an interrupt per char
- *      written!
+ *       written!
  *
  * v0.2 -- Sun, 02 Oct 2005 19:52:04 +0200
  *	Interrupts are working in SPP mode.
  *
  * v0.1 -- Sun, 02 Oct 2005 16:18:54 +0200
  *	First working version. Only SPP/PS2 modes are supported, without
- *	interrupts.
+ *	 interrupts.
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
@@ -118,7 +123,7 @@
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.7"
+#define DRV_VERSION	"0.8pre"
 
 /*--- Some configuration defines ---------------------------------------*/
 
@@ -128,7 +133,7 @@
  *	2	dump_parport_state is enabled
  *	>2	verbose level: pr_debug is enabled
  */
-#define DEBUG_PARPORT_IP32	2 /* disable for production */
+#define DEBUG_PARPORT_IP32	1 /* disable for production */
 
 /* If defined, include IRQ handlers for MACEISA_PAR_{CTXA,CTXB,MERR}_IRQ
  * interrupts.  I don't know if this interrupts have any utility.  */
@@ -912,19 +917,27 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 	static const unsigned int nfault_check_interval = 100000; /* usecs */
 	struct parport_ip32_private * const priv = PRIV(port);
 	struct parport * const physport = port->physport;
+	const bool polling = (port->irq == PARPORT_IRQ_NONE);
 	unsigned long expire;
+	unsigned long timeout;
 	unsigned long nfault_timeout;
 	int skip_nfault_check;
 	int count;
 	byte ecr;
 
-	nfault_timeout = usecs_to_jiffies (nfault_check_interval);
-	if (nfault_timeout > physport->cad->timeout)
-		nfault_timeout = physport->cad->timeout;
-	/* FIXME: in the case of interrupt-driven waiting, should we multiply
-	 * the timeout by priv->writeIntrThreshold? */
-	expire = jiffies + physport->cad->timeout;
+	/* In the case of interrupt-driven waiting, we multiply the timeout by
+	 * priv->writeIntrThreshold.  */
+	if (polling) {
+		timeout = physport->cad->timeout;
+	} else {
+		timeout = physport->cad->timeout * priv->writeIntrThreshold;
+	}
+	expire = jiffies + timeout;
+
+	nfault_timeout = min (timeout,
+			      usecs_to_jiffies (nfault_check_interval));
 	skip_nfault_check = 0;
+
 	count = 0;
 	while (1) {
 		/* Timed out? */
@@ -958,7 +971,7 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 			schedule ();
 		}
 
-		if (port->irq == PARPORT_IRQ_NONE) {
+		if (polling) {
 			/* Active polling */
 
 			/* Check FIFO state */
@@ -983,7 +996,7 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 				skip_nfault_check = nfault_check_interval /
 					polling_interval;
 			}
-		} else { /* port->irq != PARPORT_IRQ_NONE */
+		} else { /* (! polling) */
 			/* Interrupt driven waiting */
 			int r;
 
@@ -996,8 +1009,16 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 			parport_ip32_frob_econtrol (port, ECR_SERVINTR,
 						    ECR_SERVINTR);
 
-			pr_debug (PPIP32 "%s: .. r=%d, ecr=0x%02x\n",
-				  port->name, r, ecr);
+			if (r == 1 && (ecr & (ECR_SERVINTR | ECR_F_EMPTY))) {
+				/* We should have got an interrupt, but we did
+				 * not.  */
+				pr_debug1 (PPIP32 "%s: lost interrupt\n",
+					   port->name);
+				pr_debug (PPIP32 "%s: .. r=%d, "
+					  "ecr=0x%02x, dsr=0x%02x\n",
+					  port->name, r, ecr,
+					  parport_ip32_read_status (port));
+			}
 
 			/* Check FIFO state */
 			switch (ecr & (ECR_F_FULL | ECR_F_EMPTY)) {
@@ -1031,7 +1052,7 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 						 int flags, byte mode)
 {
 	void __iomem * const fifo = parport_ip32_fifo_addr (port, mode);
-	const unsigned char *bufp = buf;
+	const u8 *bufp = buf;
 	size_t left = len;
 
 	dump_parport_state (port, "begin fifo_write_block_pio", false);
@@ -1061,13 +1082,8 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 		left -= count;
 	}
 
-	if (left) {
-		pr_debug1 (PPIP32 "%s: .. transfer aborted (left=%lu)\n",
-			   port->name, (unsigned long)left);
-	} else /* (left == 0) */ {
-		pr_debug1 (PPIP32 "%s: .. transfer completed (left=%lu)\n",
-			   port->name, (unsigned long)left);
-	} /* (left == 0) */
+	pr_debug (PPIP32 "%s: .. transfer %s (left=%lu)\n", port->name,
+		  left? "aborted": "completed", (unsigned long)left);
 
 	dump_parport_state (port, "end fifo_write_block_pio", false);
 
@@ -1091,6 +1107,8 @@ static bool parport_ip32_fifo_write_initialize (struct parport *port,
 {
 	bool ready;
 
+	pr_debug ("%s(%s, 0x%02x)\n", __func__, port->name, mode);
+
 	/* Reset Fifo, go in forward mode, and disable ackIntEn */
 	parport_ip32_set_mode (port, ECR_MODE_PS2);
 	parport_ip32_write_control (port, DCR_SELECT | DCR_nINIT);
@@ -1108,6 +1126,46 @@ static bool parport_ip32_fifo_write_initialize (struct parport *port,
 	return ready;
 }
 
+/* Waits for FIFO to empty.  Returns true when FIFO is empty, or false if
+ * timeout is reached before, or if a signal is pending.
+ */
+static bool parport_ip32_drain_fifo (struct parport *port,
+				     unsigned long timeout)
+{
+	unsigned long expire = jiffies + timeout;
+	unsigned int polling_interval;
+	unsigned int counter;
+
+	pr_debug ("%s(%s, %ums)\n", __func__,
+		  port->name, jiffies_to_msecs (timeout));
+
+	/* Busy wait for approx. 200us */
+	for (counter = 0; counter < 40; counter++) {
+		if (parport_ip32_read_econtrol (port) & ECR_F_EMPTY)
+			break;
+		if (time_after (jiffies, expire))
+			break;
+		if (signal_pending (current))
+			break;
+		udelay (5);
+	}
+	/* Poll slowly.  Polling interval starts with 1 millisecond, and is
+	 * increased exponentially until 128.  */
+	polling_interval = 1; /* msecs */
+	while (! (parport_ip32_read_econtrol (port) & ECR_F_EMPTY)) {
+		if (time_after_eq (jiffies, expire))
+			break;
+		msleep_interruptible (polling_interval);
+		if (signal_pending (current))
+			break;
+		if (polling_interval < 128) {
+			polling_interval *= 2;
+		}
+	}
+
+	return !!(parport_ip32_read_econtrol (port) & ECR_F_EMPTY);
+}
+
 /* Resets FIFO, and returns the number of bytes remaining in it.
  */
 static unsigned int parport_ip32_get_fifo_residue (struct parport *port,
@@ -1123,28 +1181,48 @@ static unsigned int parport_ip32_get_fifo_residue (struct parport *port,
 	 * testing for BUSY in parport_ip32_fifo_write_initialize.
 	 */
 
-	pr_debug ("%s(%s)\n", __func__, port->name);
+	pr_debug ("%s(%s, 0x%02x)\n", __func__, port->name, mode);
 
-	/* Stop all transfers */
-	parport_ip32_frob_control (port, DCR_STROBE, 0);
+	if (parport_ip32_read_econtrol (port) & ECR_F_EMPTY) {
+		residue = 0;
+	} else {
+		printk (KERN_DEBUG PPIP32 "%s: FIFO is stuck\n", port->name);
 
-	/* Fill up FIFO */
-	for (residue = priv->fifo_depth; residue > 0; residue--) {
-		if (parport_ip32_read_econtrol (port) & ECR_F_FULL)
-			break;
-		parport_out (0x00, fifo);
+		/* Stop all transfers.
+		 *
+		 * Microsoft's document instructs to drive DCR_STROBE to 0,
+		 * but it doesn't work (at least in Compat mode, not tested in
+		 * ECP mode).  Switching directly to Test mode (as in
+		 * parport_pc) is not an option: it does confuse the port, ECP
+		 * service interrupts are no more working after that.  A hard
+		 * reset is then needed to revert to a sane state.
+		 *
+		 * Let's hope that the FIFO is really stuck and that the
+		 * peripheral doesn't wake up now.
+		 */
+		parport_ip32_frob_control (port, DCR_STROBE, 0);
+
+		/* Fill up FIFO */
+		for (residue = priv->fifo_depth; residue > 0; residue--) {
+			if (parport_ip32_read_econtrol (port) & ECR_F_FULL)
+				break;
+			parport_out (0x00, fifo);
+		}
 	}
 
-	pr_debug1 (PPIP32 "%s: %d PWords were left in FIFO\n",
-		   port->name, residue);
+	if (residue) {
+		pr_debug1 (PPIP32 "%s: %d PWords were left in FIFO\n",
+			   port->name, residue);
+	}
 
-	/* Now reset the FIFO, and change to config and clean up */
+	/* Now reset the FIFO, change to Config mode, and clean up */
 	parport_ip32_set_mode (port, ECR_MODE_CFG);
 	cnfga = parport_in (priv->regs.cnfgA);
 
-	pr_debug1 (PPIP32 "%s: cnfgA contains 0x%02x\n", port->name, cnfga);
 
 	if (! (cnfga & CNFGA_nBYTEINTRANS)) {
+		pr_debug1 (PPIP32 "%s: cnfgA contains 0x%02x\n",
+			   port->name, cnfga);
 		pr_debug1 (PPIP32 "%s: Accounting for extra byte\n",
 			   port->name);
 		residue ++;
@@ -1166,46 +1244,25 @@ static unsigned int parport_ip32_get_fifo_residue (struct parport *port,
  */
 static int parport_ip32_fifo_write_finalize (struct parport *port, int mode)
 {
+	struct parport_ip32_private * const priv = PRIV(port);
 	struct parport * const physport = port->physport;
-	unsigned long expire;
-	bool empty, ready;
-	unsigned int counter;
+	bool ready;
 	unsigned int residue;
 
-	/* First, wait for an empty FIFO. */
-	empty = 0;
-	/* FIXME: should we multiply the timeout by priv->fifo_depth? */
-	expire = jiffies + physport->cad->timeout;
-	/* Busy wait for 200us */
-	for (counter = 0; counter < 40; counter++) {
-		empty = parport_ip32_read_econtrol (port) & ECR_F_EMPTY;
-		if (empty || signal_pending (current))
-			break;
-		udelay (5);
-	}
-	/* Poll slowly. */
-	while (! (empty = parport_ip32_read_econtrol (port) & ECR_F_EMPTY)) {
-		if (time_after_eq (jiffies, expire)) {
-			/* The FIFO is stuck. */
-			break;
-		}
-		schedule_timeout_interruptible (msecs_to_jiffies (10));
-		if (signal_pending (current))
-			break;
-	}
+	pr_debug ("%s(%s, 0x%02x)\n", __func__, port->name, mode);
 
-	mdelay (500);
+	/* Wait FIFO to empty.  Timeout is proportionnal to fifo_depth.  */
+	parport_ip32_drain_fifo (port,
+				 physport->cad->timeout * priv->fifo_depth);
 
-	/* Check for a potential residue (even if the FIFO looks empty) */
+	/* Check for a potential residue */
 	residue = parport_ip32_get_fifo_residue (port, mode);
-
-	/* Note that it is theoretically possible to have (!empty &&
-	 * !residue), if the FIFO empties between the last check for emptiness
-	 * and the moment we stop all transfers in
-	 * parport_ip32_get_fifo_residue.  */
 
 	/* Then, wait for BUSY to get low. */
 	ready = !parport_wait_peripheral (port, DSR_nBUSY, DSR_nBUSY);
+	if (! ready) {
+		printk (KERN_DEBUG PPIP32 "%s: BUSY timeout\n", port->name);
+	}
 
 	/* Reset FIFO */
 	parport_ip32_set_mode (port, ECR_MODE_PS2);
@@ -1233,16 +1290,16 @@ static size_t parport_ip32_fifo_write_block (struct parport *port,
 	if (! parport_ip32_fifo_write_initialize (port, mode)) {
 		/* Avoid to flood the logs */
 		if (ready_before) {
-			pr_info (PPIP32 "%s: printer is not ready\n",
-				 port->name);
+			printk (KERN_INFO PPIP32 "%s: not ready\n",
+				port->name);
 		}
 		ready_before = false;
 		goto out;
 	}
 	ready_before = true;
 
-	pr_debug1 (PPIP32 "%s: -> %s: len=%lu\n",
-		   port->name, __func__, (unsigned long)len);
+	pr_debug (PPIP32 "%s: -> %s: len=%lu\n",
+		  port->name, __func__, (unsigned long)len);
 
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
@@ -1256,17 +1313,14 @@ static size_t parport_ip32_fifo_write_block (struct parport *port,
 
 	/* Finalize the transfer */
 	r = parport_ip32_fifo_write_finalize (port, mode);
-	if (r == 0) {
-		printk (KERN_DEBUG PPIP32 "%s: BUSY timeout\n", port->name);
-	} else if (r < 0) {
-		printk (KERN_DEBUG PPIP32 "%s: FIFO is stuck\n", port->name);
+	if (r < 0) {
 		written += r;
 	}
 
 	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
 
-	pr_debug1 (PPIP32 "%s: <- %s: written=%lu\n",
-		   port->name, __func__, (unsigned long)written);
+	pr_debug (PPIP32 "%s: <- %s: written=%lu\n",
+		  port->name, __func__, (unsigned long)written);
 
 out:
 	return written;
@@ -1850,18 +1904,12 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 		break;
 	}
 
-	ops = kmalloc(sizeof (struct parport_operations), GFP_KERNEL);
-	if (! ops) {
-		goto out1;
-	}
+	ops = kmalloc (sizeof (struct parport_operations), GFP_KERNEL);
 	priv = kmalloc (sizeof (struct parport_ip32_private), GFP_KERNEL);
-	if (! priv) {
-		goto out2;
-	}
 	/* A misnomer, actually it's allocate and reserve parport number. */
 	p = parport_register_port(base, irq, dma, ops);
-	if (! p) {
-		goto out3;
+	if (! ops || ! priv || ! p) {
+		goto error;
 	}
 
 	/* Initialize parport structure. Be conservative. */
@@ -1893,7 +1941,7 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 
 	/* If SPP mode does not work, we can't go very far. */
 	if (! parport_SPP_supported (p)) {
-		goto out4;
+		goto error;
 	}
 	dump_parport_state (p, "after SPP test", false);
 
@@ -1973,13 +2021,12 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 
 	return p;
 
-out4:
-	parport_put_port(p);
-out3:
+error:
+	if (p) {
+		parport_put_port(p);
+	}
 	kfree (priv);
-out2:
 	kfree (ops);
-out1:
 	return NULL;
 }
 
