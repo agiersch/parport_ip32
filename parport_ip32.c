@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.21 2005-10-17 18:39:31 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.22 2005-10-17 23:21:31 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -175,7 +175,7 @@
 #include <asm/io.h>
 #include <asm/types.h>
 
-#define NO_OP()		do { } while (0)
+#define NO_OP()		((void)0)
 
 /*--- Parameters for SGI O2 built-in parallel port ---------------------*/
 
@@ -558,6 +558,19 @@ static void _dump_parport_state (struct parport *p, char *str,
 
 #endif /* defined(DUMP_PARPORT_STATE) */
 
+#if defined(DEBUG_PARPORT_IP32)
+#define LOG_EXTRA_BITS(p, c, m)						\
+	do {								\
+		byte __c = (c), __m = (m);				\
+		if (__c & ~__m)						\
+			pr_debug1 (PPIP32 "%s: extra bits in %s(%s): "	\
+				   "0x%02x/0x%02x\n",			\
+				   (p)->name, __func__, #c, __c, __m);	\
+	} while (0)
+#else
+#define LOG_EXTRA_BITS(...)	NO_OP()
+#endif
+
 #define _pr_probe(...)							\
 	do { if (param_verbose_probing) printk ( __VA_ARGS__ ); } while (0)
 #define pr_probe(p, ...)						\
@@ -587,10 +600,10 @@ static inline void parport_ip32_write_econtrol (struct parport *p,
 static inline void parport_ip32_frob_econtrol (struct parport *p,
 					       byte mask, byte val)
 {
-	byte c = 0;
+	byte c;
 	pr_debug ("%s(%s, %02x, %02x)\n", __func__, p->name, mask, val);
-	c = (mask == 0xff)? 0: parport_ip32_read_econtrol (p);
-	parport_ip32_write_econtrol (p, (c & ~mask) ^ val);
+	c = (parport_ip32_read_econtrol (p) & ~mask) ^ val;
+	parport_ip32_write_econtrol (p, c);
 }
 
 /* ECR is reset in a sane state (interrupts and dma disabled), and placed in
@@ -660,12 +673,7 @@ static inline void __parport_ip32_write_control (struct parport *p, byte c)
 {
 	struct parport_ip32_private * const priv = PRIV(p);
 	pr_debug ("%s(%s, 0x%02x)\n", __func__, p->name, c);
-#if defined(DEBUG_PARPORT_IP32)
-	if (c & ~priv->dcr_writable) {
-		pr_debug1 (PPIP32 "%s: extra bits in %s: 0x%02x/0x%02x\n",
-			   p->name, __func__, c, priv->dcr_writable);
-	}
-#endif /* defined(DEBUG_PARPORT_IP32) */
+	LOG_EXTRA_BITS (p, c, priv->dcr_writable);
 	c &= priv->dcr_writable; /* only writable bits */
 	parport_out (c, priv->regs.dcr);
 	priv->dcr_cache = c;		/* update soft copy */
@@ -687,12 +695,7 @@ static inline void parport_ip32_write_control (struct parport *p, byte c)
 {
 	const byte wm = DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
 	pr_debug ("%s(%s, 0x%02x)\n", __func__, p->name, c);
-#if defined(DEBUG_PARPORT_IP32)
-	if (c & ~wm) {
-		pr_debug1 (PPIP32 "%s: extra bits in %s: 0x%02x/0x%02x\n",
-			   p->name, __func__, c, wm);
-	}
-#endif /* defined(DEBUG_PARPORT_IP32) */
+	LOG_EXTRA_BITS (p, c, wm);
 	__parport_ip32_frob_control (p, wm, c & wm);
 }
 
@@ -701,12 +704,8 @@ static inline byte parport_ip32_frob_control (struct parport *p,
 {
 	const byte wm = DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
 	pr_debug ("%s(%s, 0x%02x, 0x%02x)\n", __func__, p->name, mask, val);
-#if defined(DEBUG_PARPORT_IP32)
-	if (mask & ~wm || val & ~wm) {
-		pr_debug1 (PPIP32 "%s: extra bits in %s: 0x%02x,0x%02x/0x%02x",
-			   p->name, __func__, mask, val, wm);
-	}
-#endif /* defined(DEBUG_PARPORT_IP32) */
+	LOG_EXTRA_BITS (p, mask, wm);
+	LOG_EXTRA_BITS (p, val, wm);
 	__parport_ip32_frob_control (p, mask & wm, val & wm);
 	return parport_ip32_read_control (p);
 }
@@ -775,7 +774,6 @@ static irqreturn_t parport_ip32_interrupt (int irq, void *dev_id,
 	struct parport * const port = dev_id;
 	pr_debug ("%s(%d, %s)\n", __func__, irq, port->name);
 	parport_generic_irq (irq, port, regs);
-	/* FIXME! Was it really ours? */
 	return IRQ_HANDLED;
 }
 
@@ -962,7 +960,7 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 		if (! skip_nfault_check &&
 		    ! (parport_ip32_read_status (port) & DSR_nFAULT)) {
 			printk (KERN_DEBUG PPIP32
-				"%s: FIFO write error\n", port->name);
+				"%s: nFault asserted low\n", port->name);
 			break;
 		}
 		/* Time to resched? */
@@ -998,11 +996,14 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 			}
 		} else { /* (! polling) */
 			/* Interrupt driven waiting */
-			static bool lost_interrupt = false;
 			int r;
 
 			/* Enable serviceIntr */
 			parport_ip32_frob_econtrol (port, ECR_SERVINTR, 0);
+			/*
+			 * FIXME: there is a race condition here.  If an
+			 * interrupt occurs now, we never see it (I think).
+			 */
 			/* Wait for interrupt */
 			r = parport_wait_event (port, nfault_timeout);
 			ecr = parport_ip32_read_econtrol (port);
@@ -1010,7 +1011,7 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 			parport_ip32_frob_econtrol (port, ECR_SERVINTR,
 						    ECR_SERVINTR);
 
-			if (r == 1 && (ecr & (ECR_SERVINTR | ECR_F_EMPTY))) {
+			if ((ecr & ECR_F_EMPTY) && !(ecr & ECR_SERVINTR)) {
 				/* We should have got an interrupt, but we did
 				 * not.  */
 				pr_debug1 (PPIP32 "%s: lost interrupt\n",
@@ -1019,11 +1020,6 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 					  "ecr=0x%02x, dsr=0x%02x\n",
 					  port->name, r, ecr,
 					  parport_ip32_read_status (port));
-				lost_interrupt = true;
-			} else if (r == 0 && lost_interrupt) {
-				pr_debug1 (PPIP32 "%s: interrupt back\n",
-					   port->name);
-				lost_interrupt = false;
 			}
 
 			/* Check FIFO state */
