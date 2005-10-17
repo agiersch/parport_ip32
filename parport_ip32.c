@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.20 2005-10-16 20:37:11 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.21 2005-10-17 18:39:31 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -998,6 +998,7 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 			}
 		} else { /* (! polling) */
 			/* Interrupt driven waiting */
+			static bool lost_interrupt = false;
 			int r;
 
 			/* Enable serviceIntr */
@@ -1018,6 +1019,11 @@ static inline int parport_ip32_fifo_write_pio_wait (struct parport *port)
 					  "ecr=0x%02x, dsr=0x%02x\n",
 					  port->name, r, ecr,
 					  parport_ip32_read_status (port));
+				lost_interrupt = true;
+			} else if (r == 0 && lost_interrupt) {
+				pr_debug1 (PPIP32 "%s: interrupt back\n",
+					   port->name);
+				lost_interrupt = false;
 			}
 
 			/* Check FIFO state */
