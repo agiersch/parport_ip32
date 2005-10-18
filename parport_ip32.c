@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.23 2005-10-18 22:53:05 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.24 2005-10-18 23:07:50 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -582,18 +582,15 @@ static void _dump_parport_state (struct parport *p, char *str,
 #define LOG_EXTRA_BITS(...)	NO_OP()
 #endif
 
-#define _pr_trace(pr, p, ...)						\
-	do {	pr ("%s: %s" , (p)->name, __func__);			\
-		pr ("" __VA_ARGS__);  pr ("\n");			\
-	} while (0)
-#define pr_trace(p, ...)	_pr_trace (pr_debug, p, __VA_ARGS__ )
-#define pr_trace1(p, ...)	_pr_trace (pr_debug1, p, __VA_ARGS__ )
+#define _pr_trace(pr, p, fmt, ...)					\
+	pr ("%s: %s" fmt "\n", (p)->name, __func__ , ##__VA_ARGS__)
+#define pr_trace(...)	_pr_trace (pr_debug, __VA_ARGS__ )
+#define pr_trace1(...)	_pr_trace (pr_debug1, __VA_ARGS__ )
 
 #define _pr_probe(...)							\
 	do { if (param_verbose_probing) printk ( __VA_ARGS__ ); } while (0)
-#define pr_probe(p, ...)						\
-	do { _pr_probe (KERN_DEBUG PPIP32 "0x%lx: ", (p)->base);	\
-	     _pr_probe ( __VA_ARGS__ ); } while (0)
+#define pr_probe(p, fmt, ...)						\
+	_pr_probe (KERN_DEBUG PPIP32 "0x%lx: " fmt, (p)->base , ##__VA_ARGS__)
 
 #define NOT_IMPLEMENTED(p, m)						\
 	printk (KERN_DEBUG PPIP32					\
@@ -755,7 +752,7 @@ static inline void parport_ip32_init_state (struct pardevice *dev,
 					    struct parport_state *s)
 {
 	struct parport_ip32_private * const priv = PRIV(dev->port);
-	pr_trace (dev->port, "([%s], %p)", dev->name, s);
+	pr_trace (dev->port, "(%s, %p)", dev->name, s);
 	s->u.ip32.dcr = priv->dcr_init;
 	s->u.ip32.ecr = priv->ecr_init;
 }
@@ -1381,7 +1378,7 @@ static size_t parport_ip32_fifo_write_block (struct parport *port,
 	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
 	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
 
-	pr_trace (port, " <- written=%lu\n", (unsigned long)written);
+	pr_trace (port, " <- written=%lu", (unsigned long)written);
 
 out:
 	return written;
