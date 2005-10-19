@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.27 2005-10-19 18:42:31 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.28 2005-10-19 19:44:00 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -36,68 +36,12 @@
 
 /* Current status:
  *
- *	Basic modes: PCSPP, PS2.
- *	Compatibility mode with FIFO support.
+ *	Basic modes are supported: PCSPP, PS2.
+ *	Compatibility mode with FIFO support is present.
  *	FIFO can be driven with or without interrupts.
  *
- *	DMA support is not implemented.
- *	EPP and ECP modes are not implemented.
- *
- * History:
- *
- * v0.8 -- ...
- *	Remove DEBUG_IP32_IRQ.
- *	Improved IRQ handler.
- *	Defined pr_trace().
- *	Corrected parport_ip32_get_fifo_residue.
- *	Added parport_ip32_drain_fifo.
- *	It's ok to feed NULL pointer to kfree.
- *	Use __func__ instead of __FUNCTION__.
- *	Get rid of parport_ip32_frob_set_mode,
- *	 introduce parport_ip32_set_mode.
- *
- * v0.7 -- Thu, 13 Oct 2005 23:49:23 +0200
- *	Fix typo: left instead of len if parport_ip32_write_block_pio!
- *	Moved DRV_* at top of source file.
- *
- * v0.6 -- Thu, 13 Oct 2005 11:09:08 +0200
- *	Added possibility to disable FIFO at run-time.
- *	Added PARPORT_IP32_FIFO in KConfig.
- *	More consistent names for register macros.
- *	Check for nFault too, before starting compat_write_data.
- *	Added some module_param.
- *	Checked types.
- *	Moved {init,final}ization in parport_ip32_fifo_write_block.
- *	In parport_ip32_fifo_write_pio: check for BUSY before starting
- *	 transfer.
- *	Improved parport_ip32_fifo_write_wait.
- *	Corrected FIFO tests.
- *	Added dump_parport_state in parport_ip32_debug_irq_handler.
- *	Defined NO_OP().
- *	Added MODULE_VERSION.
- *
- * v0.5 -- Mon, 10 Oct 2005 02:29:18 +0200
- *	Improved FIFO testing.
- *	Added DEBUG_IP32_IRQ.
- *	Added FIFO support (compatibility mode).
- *	Do not initialize ECR if it is not present.
- *	Code cleanup.
- *
- * v0.4 -- Fri, 07 Oct 2005 00:57:06 +0200
- *	Major rewrite.
- *
- * v0.3 -- Tue, 04 Oct 2005 22:10:52 +0200
- *	Added Compatibility FIFO mode (PIO).
- *      Added code for EPP support (not tested).
- *      Disable interrupts: it is too slow to get an interrupt per char
- *       written!
- *
- * v0.2 -- Sun, 02 Oct 2005 19:52:04 +0200
- *	Interrupts are working in SPP mode.
- *
- * v0.1 -- Sun, 02 Oct 2005 16:18:54 +0200
- *	First working version. Only SPP/PS2 modes are supported, without
- *	 interrupts.
+ *	DMA support is not implemented (lack of documentation).
+ *	EPP and ECP modes are not implemented (lack of interest).
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
@@ -124,7 +68,7 @@
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.8pre"
+#define DRV_VERSION	"0.0.8"
 
 /*--- Some configuration defines ---------------------------------------*/
 
@@ -134,7 +78,7 @@
  *	2	dump_parport_state is enabled
  *	>2	verbose level: pr_debug is enabled
  */
-#define DEBUG_PARPORT_IP32	1 /* disable for production */
+#define DEBUG_PARPORT_IP32  1	/* disable for production */
 
 /* Un-define to disable support for a particular mode. */
 #define PARPORT_IP32_PS2
@@ -210,7 +154,7 @@ static inline void iounmap_mace_address (void)
 #else /* ! defined(MODULE) */
 #define iomap_mace_address(...)		NO_OP()
 #define iounmap_mace_address(...)	NO_OP()
-#endif  /* ! defined(MODULE) */
+#endif
 
 /*--- Basic type definitions -------------------------------------------*/
 
@@ -2009,7 +1953,7 @@ static __exit void parport_ip32_unregister_port (struct parport *p)
 
 	parport_put_port(p);
 	kfree (priv);
-	kfree (ops); /* hope no-one cached it */
+	kfree (ops);
 }
 
 /*--- Initialisation code ----------------------------------------------*/
@@ -2088,10 +2032,9 @@ MODULE_PARM_DESC (use_dma, "Use DMA if available");
 /*
  * Local Variables:
  * mode: c
- * eval: (c-set-style "K&R")
- * tab-width: 8
+ * c-file-style: "linux"
  * indent-tabs-mode: t
- * c-basic-offset: 8
+ * tab-width: 8
  * fill-column: 78
  * ispell-local-dictionary: "american"
  * End:
