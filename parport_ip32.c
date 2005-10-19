@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.28 2005-10-19 19:44:00 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.29 2005-10-19 20:55:17 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -808,19 +808,19 @@ static inline bool parport_ip32_fwp_wait_break (struct parport *port,
 						unsigned long expire)
 {
 	/* Timed out? */
-	if (unlikely(time_after (jiffies, expire))) {
+	if (time_after (jiffies, expire)) {
 		printk (KERN_DEBUG PPIP32
 			"%s: FIFO write timed out\n", port->name);
 		return true;
 	}
 	/* Pending signal? */
-	if (unlikely(signal_pending (current))) {
+	if (signal_pending (current)) {
 		printk (KERN_DEBUG PPIP32
 			"%s: Signal pending\n", port->name);
 		return true;
 	}
 	/* nFault? */
-	if (unlikely(! (parport_ip32_read_status (port) & DSR_nFAULT))) {
+	if (! (parport_ip32_read_status (port) & DSR_nFAULT)) {
 		printk (KERN_DEBUG PPIP32
 			"%s: nFault asserted low\n", port->name);
 		return true;
@@ -843,7 +843,7 @@ static inline int parport_ip32_fwp_wait_polling (struct parport *port)
 	expire = jiffies + physport->cad->timeout;
 	count = 0;
 	while (1) {
-		if (unlikely(parport_ip32_fwp_wait_break (port, expire)))
+		if (parport_ip32_fwp_wait_break (port, expire))
 			break;
 
 		/* Check FIFO state */
