@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.26 2005-10-19 11:46:50 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.27 2005-10-19 18:42:31 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -46,6 +46,7 @@
  * History:
  *
  * v0.8 -- ...
+ *	Remove DEBUG_IP32_IRQ.
  *	Improved IRQ handler.
  *	Defined pr_trace().
  *	Corrected parport_ip32_get_fifo_residue.
@@ -135,10 +136,6 @@
  */
 #define DEBUG_PARPORT_IP32	1 /* disable for production */
 
-/* If defined, include IRQ handlers for MACEISA_PAR_{CTXA,CTXB,MERR}_IRQ
- * interrupts.  I don't know if this interrupts have any utility.  */
-#undef DEBUG_IP32_IRQ		/* disable for production */
-
 /* Un-define to disable support for a particular mode. */
 #define PARPORT_IP32_PS2
 #define PARPORT_IP32_EPP	/* not implemented */
@@ -147,21 +144,15 @@
 /*----------------------------------------------------------------------*/
 
 /* Setup DEBUG macros. */
-#if DEBUG_PARPORT_IP32 == 0
-#	undef DEBUG_PARPORT_IP32
-#elif DEBUG_PARPORT_IP32 == 1
+#if DEBUG_PARPORT_IP32 == 1
 #	warning DEBUG_PARPORT_IP32 == 1
 #elif DEBUG_PARPORT_IP32 == 2
 #	warning DEBUG_PARPORT_IP32 == 2
-#elif DEBUG_PARPORT_IP32 > 2
-#	warning DEBUG_PARPORT_IP32 > 2
+#elif DEBUG_PARPORT_IP32 >= 3
+#	warning DEBUG_PARPORT_IP32 >= 3
 #	if ! defined(DEBUG)
 #		define DEBUG /* enable pr_debug() in kernel.h */
 #	endif
-#endif
-
-#if defined(DEBUG_IP32_IRQ)
-#	warning DEBUG_IP32_IRQ enabled
 #endif
 
 #include <linux/config.h>
@@ -244,7 +235,7 @@ typedef unsigned int	parport_ip32_byte;
 #	undef PARPORT_IP32_ECP
 #endif
 
-#if defined(DEBUG_PARPORT_IP32)
+#if DEBUG_PARPORT_IP32 >= 1
 #	define DEFAULT_VERBOSE_PROBING 1
 #else
 #	define DEFAULT_VERBOSE_PROBING 0
@@ -467,26 +458,10 @@ static inline void parport_out_rep (void __iomem *addr, const void *buf,
 #endif
 
 #if DEBUG_PARPORT_IP32 >= 2
-#	if ! defined(DUMP_PARPORT_STATE)
-#		define DUMP_PARPORT_STATE
-#	endif
-#	define dump_parport_state(...)	_dump_parport_state ( __VA_ARGS__ )
-#else
-#	define dump_parport_state(...)	NO_OP()
-#endif
-
-#if defined(DEBUG_IP32_IRQ)
-#	if ! defined (DUMP_PARPORT_STATE)
-#		define DUMP_PARPORT_STATE
-#	endif
-#endif
-
-#if defined(DUMP_PARPORT_STATE)
-
 /* _dump_parport_state - print register status of parport
  */
-static void _dump_parport_state (struct parport *p, char *str,
-				 bool show_ecp_config)
+static void dump_parport_state (struct parport *p, char *str,
+				bool show_ecp_config)
 {
 	/* here's hoping that reading these ports won't side-effect
 	 * anything underneath */
@@ -564,10 +539,11 @@ static void _dump_parport_state (struct parport *p, char *str,
 	}
 #undef sep
 }
+#else /* DEBUG_PARPORT_IP32 < 2 */
+#define dump_parport_state(...)		NO_OP()
+#endif
 
-#endif /* defined(DUMP_PARPORT_STATE) */
-
-#if defined(DEBUG_PARPORT_IP32)
+#if DEBUG_PARPORT_IP32 >= 1
 #define LOG_EXTRA_BITS(p, c, m)						\
 	do {								\
 		byte __c = (c), __m = (m);				\
@@ -577,7 +553,7 @@ static void _dump_parport_state (struct parport *p, char *str,
 				   (p)->name, __func__, #c, __c, __m);	\
 	} while (0)
 #else
-#define LOG_EXTRA_BITS(...)	NO_OP()
+#define LOG_EXTRA_BITS(...)		NO_OP()
 #endif
 
 #define _pr_trace(pr, p, fmt, ...)					\
@@ -809,71 +785,6 @@ static void parport_ip32_timeout (unsigned long data)
 	struct parport * const port = (struct parport *)data;
 	parport_ip32_wakeup (port);
 }
-
-#if defined(DEBUG_IP32_IRQ)
-
-static int maceisa_par_ctxa_irq = MACEISA_PAR_CTXA_IRQ;
-static int maceisa_par_ctxb_irq = MACEISA_PAR_CTXB_IRQ;
-static int maceisa_par_merr_irq = MACEISA_PAR_MERR_IRQ;
-
-static irqreturn_t parport_ip32_debug_irq_handler (int irq, void *dev_id,
-						   struct pt_regs *regs)
-{
-	struct parport * const port = dev_id;
-	printk (KERN_DEBUG "%s: %s(%d)\n", port->name, __func__, irq);
-	_dump_parport_state (port, "@ irq", false);
-	return IRQ_HANDLED;
-}
-
-static __init void parport_ip32_debug_irq_init (struct parport *port)
-{
-#define debug_ip32_request_irq(irq)					\
-	do {								\
-		if (irq != PARPORT_IRQ_NONE) {				\
-			const char *s = "";				\
-			if (request_irq (irq, parport_ip32_debug_irq_handler, \
-					 0, port->name, port)) {	\
-				s = "failed to ";			\
-				irq = PARPORT_IRQ_NONE;			\
-			}						\
-			printk (KERN_DEBUG PPIP32			\
-				"%s: %sinstall IRQ handler for %s (%d)\n", \
-				port->name, s, #irq, irq);		\
-		}							\
-	} while (0)
-
-	debug_ip32_request_irq (maceisa_par_ctxa_irq);
-	debug_ip32_request_irq (maceisa_par_ctxb_irq);
-	debug_ip32_request_irq (maceisa_par_merr_irq);
-
-#undef debug_ip32_request_irq
-}
-
-static __exit void parport_ip32_debug_irq_exit (struct parport *port)
-{
-#define debug_ip32_free_irq(irq)				\
-	do {							\
-		if (irq != PARPORT_IRQ_NONE) {			\
-			printk (KERN_DEBUG PPIP32 "%s: "	\
-				"freeing IRQ %s (%d)\n",	\
-				port->name, #irq, irq);		\
-			free_irq(irq, port);			\
-		}						\
-	} while (0)
-
-	debug_ip32_free_irq (maceisa_par_merr_irq);
-	debug_ip32_free_irq (maceisa_par_ctxb_irq);
-	debug_ip32_free_irq (maceisa_par_ctxa_irq);
-
-#undef debug_ip32_free_irq
-}
-
-#else /* ! defined(DEBUG_IP32_IRQ) */
-
-#define parport_ip32_debug_irq_init(...)	NO_OP()
-#define parport_ip32_debug_irq_exit(...)	NO_OP()
-
-#endif /* ! defined(DEBUG_IP32_IRQ) */
 
 /*--- EPP mode functions -----------------------------------------------*/
 
@@ -2131,14 +2042,11 @@ static int __init parport_ip32_init (void)
 		return -ENODEV;
 	}
 
-	parport_ip32_debug_irq_init (this_port);
-
 	return 0;
 }
 
 static void __exit parport_ip32_exit (void)
 {
-	parport_ip32_debug_irq_exit (this_port);
 	parport_ip32_unregister_port (this_port);
 	iounmap_mace_address ();
 }
