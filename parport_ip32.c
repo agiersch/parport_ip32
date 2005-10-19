@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.25 2005-10-19 11:41:51 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.26 2005-10-19 11:46:50 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -1028,7 +1028,7 @@ static inline int parport_ip32_fwp_wait_interrupt (struct parport *port)
 
 	/* nfault_timeout indicates that it is time to check for nFault (check
 	 * done in parport_ip32_fwp_wait_break */
-	nfault_timeout = min (physport->cad->timeout,
+	nfault_timeout = min ((unsigned long )physport->cad->timeout,
 			      msecs_to_jiffies (nfault_check_interval));
 	expire = jiffies + physport->cad->timeout;
 	count = 0;
