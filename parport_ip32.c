@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.24 2005-10-18 23:07:50 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.25 2005-10-19 11:41:51 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -50,8 +50,6 @@
  *	Defined pr_trace().
  *	Corrected parport_ip32_get_fifo_residue.
  *	Added parport_ip32_drain_fifo.
- *	Timeout proportionnal to writeIntrThreshold in
- *	 parport_ip32_fifo_write_pio_wait
  *	It's ok to feed NULL pointer to kfree.
  *	Use __func__ instead of __FUNCTION__.
  *	Get rid of parport_ip32_frob_set_mode,
@@ -1023,20 +1021,16 @@ static inline int parport_ip32_fwp_wait_interrupt (struct parport *port)
 	struct parport_ip32_private * const priv = PRIV(port);
 	struct parport * const physport = port->physport;
 	DEFINE_TIMER (timer, parport_ip32_timeout, 0, (unsigned long )port);
-	unsigned long expire;
-	unsigned long timeout;
 	unsigned long nfault_timeout;
+	unsigned long expire;
 	byte ecr, fifo_state;
 	int count;
 
-	/* In the case of interrupt-driven waiting, we multiply the timeout by
-	 * priv->writeIntrThreshold.  */
-	timeout = physport->cad->timeout * priv->writeIntrThreshold;
-	expire = jiffies + timeout;
-	/* nfault_timeout indicates that it is time to check for nFault (done
-	 * in parport_ip32_fwp_wait_break */
-	nfault_timeout = min (timeout,
+	/* nfault_timeout indicates that it is time to check for nFault (check
+	 * done in parport_ip32_fwp_wait_break */
+	nfault_timeout = min (physport->cad->timeout,
 			      msecs_to_jiffies (nfault_check_interval));
+	expire = jiffies + physport->cad->timeout;
 	count = 0;
 	while (1) {
 		if (parport_ip32_fwp_wait_break (port, expire))
