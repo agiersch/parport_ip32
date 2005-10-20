@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.30 2005-10-20 19:30:55 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.31 2005-10-20 19:41:33 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -250,9 +250,9 @@ struct parport_ip32_regs {
 #define CNFGA_IRQ		BIT(7)
 #define CNFGA_ID_MASK		(BIT(6) | BIT(5) | BIT(4))
 #define CNFGA_ID_SHIFT		4
-#define CNFGA_ID_16		(0x00 << CNFGA_ID_SHIFT)
-#define CNFGA_ID_8		(0x01 << CNFGA_ID_SHIFT)
-#define CNFGA_ID_32		(0x02 << CNFGA_ID_SHIFT)
+#define CNFGA_ID_16		(00 << CNFGA_ID_SHIFT)
+#define CNFGA_ID_8		(01 << CNFGA_ID_SHIFT)
+#define CNFGA_ID_32		(02 << CNFGA_ID_SHIFT)
 /* #define CNFGA_???		BIT(3) */
 #define CNFGA_nBYTEINTRANS	BIT(2)
 #define CNFGA_PWORDLEFT		(BIT(1) | BIT(0))
@@ -645,7 +645,7 @@ static inline byte parport_ip32_frob_control (struct parport *p,
 static inline void parport_ip32_disable_irq (struct parport *p)
 {
 	pr_trace (p, "()");
-	__parport_ip32_frob_control (p, DCR_IRQ, 0x00);
+	__parport_ip32_frob_control (p, DCR_IRQ, 0);
 }
 
 static inline void parport_ip32_enable_irq (struct parport *p)
@@ -657,7 +657,7 @@ static inline void parport_ip32_enable_irq (struct parport *p)
 static inline void parport_ip32_data_forward (struct parport *p)
 {
 	pr_trace (p, "()");
-	__parport_ip32_frob_control (p, DCR_DIR, 0x00);
+	__parport_ip32_frob_control (p, DCR_DIR, 0);
 }
 
 static inline void parport_ip32_data_reverse (struct parport *p)
@@ -1420,7 +1420,7 @@ static __init bool parport_SPP_supported (struct parport *p)
 	parport_ip32_clear_epp_timeout (p);
 
 	/* Do a simple read-write test to make sure the port exists. */
-	w = 0x0c;
+	w = 0x0c;		/* DCR_SELECT | DCR_nINIT */
 	parport_out (w, priv->regs.dcr);
 
 	/* Is there a control register that we can read from?  Some
@@ -1434,7 +1434,7 @@ static __init bool parport_SPP_supported (struct parport *p)
 		parport_out (w, priv->regs.dcr);
 		r = parport_in (priv->regs.dcr);
 		parport_out (0x0c, priv->regs.dcr);
-		if ((r & 0x0f) != w)
+		if ((r & 0x0f) == w)
 			goto spp_ok;
 	}
 
