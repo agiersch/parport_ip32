@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.29 2005-10-19 20:55:17 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.30 2005-10-20 19:30:55 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -113,7 +113,7 @@
 #include <asm/semaphore.h>
 #include <asm/types.h>
 
-#define NO_OP()		((void)0)
+#define NO_OP()			((void)0)
 
 /*--- Parameters for SGI O2 built-in parallel port ---------------------*/
 
@@ -121,19 +121,19 @@
 #include <asm/ip32/ip32_ints.h>
 
 /* Physical I/O addresses */
-#define PARPORT_IP32_IO	  (MACE_BASE +				\
-			   offsetof (struct sgi_mace, isa) +	\
-			   offsetof (struct mace_isa, parallel))
-#define PARPORT_IP32_IOHI (MACE_BASE +				\
-			   offsetof (struct sgi_mace, isa) +	\
-			   offsetof (struct mace_isa, ecp1284))
+#define PARPORT_IP32_IO		(MACE_BASE +				\
+				 offsetof (struct sgi_mace, isa) +	\
+				 offsetof (struct mace_isa, parallel))
+#define PARPORT_IP32_IOHI	(MACE_BASE +				\
+				 offsetof (struct sgi_mace, isa) +	\
+				 offsetof (struct mace_isa, ecp1284))
 
 #define PARPORT_IP32_IRQ	MACEISA_PARALLEL_IRQ
 #define PARPORT_IP32_DMA	PARPORT_DMA_NONE
 
 /* Memory mapped I/O addresses */
-#define PARPORT_IP32_IO_ADDR   ((void *)&mace->isa.parallel)
-#define PARPORT_IP32_IOHI_ADDR ((void *)&mace->isa.ecp1284)
+#define PARPORT_IP32_IO_ADDR	((void *)&mace->isa.parallel)
+#define PARPORT_IP32_IOHI_ADDR	((void *)&mace->isa.ecp1284)
 
 /* Registers are replicated 256 times */
 #define PARPORT_IP32_REGSHIFT	8
@@ -180,9 +180,9 @@ typedef unsigned int	parport_ip32_byte;
 #endif
 
 #if DEBUG_PARPORT_IP32 >= 1
-#	define DEFAULT_VERBOSE_PROBING 1
+#	define DEFAULT_VERBOSE_PROBING	1
 #else
-#	define DEFAULT_VERBOSE_PROBING 0
+#	define DEFAULT_VERBOSE_PROBING	0
 #endif
 
 #define PPIP32 DRV_NAME ": "
@@ -227,45 +227,45 @@ struct parport_ip32_regs {
 #define BIT(n) (1U << (n))
 
 /* Device Status Register */
-#define DSR_nBUSY	BIT(7)	/* PARPORT_STATUS_BUSY */
-#define DSR_nACK	BIT(6)	/* PARPORT_STATUS_ACK */
-#define DSR_PERROR	BIT(5)	/* PARPORT_STATUS_PAPEROUT */
-#define DSR_SELECT	BIT(4)	/* PARPORT_STATUS_SELECT */
-#define DSR_nFAULT	BIT(3)	/* PARPORT_STATUS_ERROR */
-#define DSR_nPRINT	BIT(2)	/* specific to the TL16PIR552 */
-/* #define DSR_???	BIT(1) */
-#define DSR_TIMEOUT	BIT(0)	/* EPP timeout */
+#define DSR_nBUSY		BIT(7)	/* PARPORT_STATUS_BUSY */
+#define DSR_nACK		BIT(6)	/* PARPORT_STATUS_ACK */
+#define DSR_PERROR		BIT(5)	/* PARPORT_STATUS_PAPEROUT */
+#define DSR_SELECT		BIT(4)	/* PARPORT_STATUS_SELECT */
+#define DSR_nFAULT		BIT(3)	/* PARPORT_STATUS_ERROR */
+#define DSR_nPRINT		BIT(2)	/* specific to the TL16PIR552 */
+/* #define DSR_???		BIT(1) */
+#define DSR_TIMEOUT		BIT(0)	/* EPP timeout */
 
 /* Device Control Register */
-/* #define DCR_???	BIT(7) */
-/* #define DCR_???	BIT(6) */
-#define DCR_DIR		BIT(5)	/* direction */
-#define DCR_IRQ		BIT(4)	/* interrupt on nAck */
-#define DCR_SELECT	BIT(3)	/* PARPORT_CONTROL_SELECT */
-#define DCR_nINIT	BIT(2)	/* PARPORT_CONTROL_INIT */
-#define DCR_AUTOFD	BIT(1)	/* PARPORT_CONTROL_AUTOFD */
-#define DCR_STROBE	BIT(0)	/* PARPORT_CONTROL_STROBE */
+/* #define DCR_???		BIT(7) */
+/* #define DCR_???		BIT(6) */
+#define DCR_DIR			BIT(5)	/* direction */
+#define DCR_IRQ			BIT(4)	/* interrupt on nAck */
+#define DCR_SELECT		BIT(3)	/* PARPORT_CONTROL_SELECT */
+#define DCR_nINIT		BIT(2)	/* PARPORT_CONTROL_INIT */
+#define DCR_AUTOFD		BIT(1)	/* PARPORT_CONTROL_AUTOFD */
+#define DCR_STROBE		BIT(0)	/* PARPORT_CONTROL_STROBE */
 
 /* ECP Configuration Register A */
-#define CNFGA_IRQ	BIT(7)
-#define CNFGA_ID_MASK	(BIT(6) | BIT(5) | BIT(4))
-#define CNFGA_ID_SHIFT	4
-#define CNFGA_ID_16	(0x00 << CNFGA_ID_SHIFT)
-#define CNFGA_ID_8	(0x01 << CNFGA_ID_SHIFT)
-#define CNFGA_ID_32	(0x02 << CNFGA_ID_SHIFT)
-/* #define CNFGA_???	BIT(3) */
-#define CNFGA_nBYTEINTRANS BIT(2)
-#define CNFGA_PWORDLEFT	(BIT(1) | BIT(0))
+#define CNFGA_IRQ		BIT(7)
+#define CNFGA_ID_MASK		(BIT(6) | BIT(5) | BIT(4))
+#define CNFGA_ID_SHIFT		4
+#define CNFGA_ID_16		(0x00 << CNFGA_ID_SHIFT)
+#define CNFGA_ID_8		(0x01 << CNFGA_ID_SHIFT)
+#define CNFGA_ID_32		(0x02 << CNFGA_ID_SHIFT)
+/* #define CNFGA_???		BIT(3) */
+#define CNFGA_nBYTEINTRANS	BIT(2)
+#define CNFGA_PWORDLEFT		(BIT(1) | BIT(0))
 
 /* ECP Configuration Register B */
-#define CNFGB_COMPRESS	BIT(7)
-#define CNFGB_INTRVAL	BIT(6)
-#define CNFGB_IRQ_MASK	(BIT(5) | BIT(4) | BIT(3))
-#define CNFGB_IRQ_SHIFT	3
-#define CNFGB_IRQ(r)	cnfgb_irq_line(r) /* defined below */
-#define CNFGB_DMA_MASK	(BIT(2) | BIT(1) | BIT(0))
-#define CNFGB_DMA_SHIFT	0
-#define CNFGB_DMA(r)	cnfgb_dma_channel(r) /* defined below */
+#define CNFGB_COMPRESS		BIT(7)
+#define CNFGB_INTRVAL		BIT(6)
+#define CNFGB_IRQ_MASK		(BIT(5) | BIT(4) | BIT(3))
+#define CNFGB_IRQ_SHIFT		3
+#define CNFGB_IRQ(r)		cnfgb_irq_line(r)	/* defined below */
+#define CNFGB_DMA_MASK		(BIT(2) | BIT(1) | BIT(0))
+#define CNFGB_DMA_SHIFT		0
+#define CNFGB_DMA(r)		cnfgb_dma_channel(r)	/* defined below */
 
 static inline unsigned int cnfgb_irq_line (byte reg)
 {
@@ -280,21 +280,21 @@ static inline unsigned int cnfgb_dma_channel (byte reg)
 }
 
 /* Extended Control Register */
-#define ECR_MODE_MASK	(BIT(7) | BIT(6) | BIT(5))
-#define ECR_MODE_SHIFT	5
-#define ECR_MODE_SPP	(0x00 << ECR_MODE_SHIFT)
-#define ECR_MODE_PS2	(0x01 << ECR_MODE_SHIFT)
-#define ECR_MODE_PPF	(0x02 << ECR_MODE_SHIFT)
-#define ECR_MODE_ECP	(0x03 << ECR_MODE_SHIFT)
-#define ECR_MODE_EPP	(0x04 << ECR_MODE_SHIFT)
-/* #define ECR_MODE_???	(0x05 << ECR_MODE_SHIFT) */
-#define ECR_MODE_TST	(0x06 << ECR_MODE_SHIFT)
-#define ECR_MODE_CFG	(0x07 << ECR_MODE_SHIFT)
-#define ECR_nERRINTR	BIT(4)
-#define ECR_DMA		BIT(3)
-#define ECR_SERVINTR	BIT(2)
-#define ECR_F_FULL	BIT(1)
-#define ECR_F_EMPTY	BIT(0)
+#define ECR_MODE_MASK		(BIT(7) | BIT(6) | BIT(5))
+#define ECR_MODE_SHIFT		5
+#define ECR_MODE_SPP		(00 << ECR_MODE_SHIFT)
+#define ECR_MODE_PS2		(01 << ECR_MODE_SHIFT)
+#define ECR_MODE_PPF		(02 << ECR_MODE_SHIFT)
+#define ECR_MODE_ECP		(03 << ECR_MODE_SHIFT)
+#define ECR_MODE_EPP		(04 << ECR_MODE_SHIFT)
+/* #define ECR_MODE_???		(05 << ECR_MODE_SHIFT) */
+#define ECR_MODE_TST		(06 << ECR_MODE_SHIFT)
+#define ECR_MODE_CFG		(07 << ECR_MODE_SHIFT)
+#define ECR_nERRINTR		BIT(4)
+#define ECR_DMA			BIT(3)
+#define ECR_SERVINTR		BIT(2)
+#define ECR_F_FULL		BIT(1)
+#define ECR_F_EMPTY		BIT(0)
 
 /*--- Private data -----------------------------------------------------*/
 
@@ -307,7 +307,7 @@ struct parport_ip32_private {
 	byte dcr_cache;		/* Cached contents of DCR */
 	byte dcr_writable;	/* Bitmask of writable DCR bits */
 
-	bool ecr_present; /* Is an ECR register present? */
+	bool ecr_present;	/* Is an ECR register present? */
 
 	/* Number of PWords that FIFO will hold */
 	unsigned int fifo_depth;
@@ -1297,33 +1297,33 @@ FROBBER (parport_ip32_frob_control)
  * ("parport_ip32_ops causes a section type conflict") because of the
  * __initdata qualifier.  */
 static __initdata /*const*/ struct parport_operations parport_ip32_ops = {
-	.write_data	= parport_ip32_write_data_wrapper,
-	.read_data	= parport_ip32_read_data_wrapper,
+	.write_data		= parport_ip32_write_data_wrapper,
+	.read_data		= parport_ip32_read_data_wrapper,
 
-	.write_control	= parport_ip32_write_control_wrapper,
-	.read_control	= parport_ip32_read_control_wrapper,
-	.frob_control	= parport_ip32_frob_control_wrapper,
+	.write_control		= parport_ip32_write_control_wrapper,
+	.read_control		= parport_ip32_read_control_wrapper,
+	.frob_control		= parport_ip32_frob_control_wrapper,
 
-	.read_status	= parport_ip32_read_status_wrapper,
+	.read_status		= parport_ip32_read_status_wrapper,
 
-	.enable_irq	= parport_ip32_enable_irq,
-	.disable_irq	= parport_ip32_disable_irq,
+	.enable_irq		= parport_ip32_enable_irq,
+	.disable_irq		= parport_ip32_disable_irq,
 
-	.data_forward	= parport_ip32_data_forward,
-	.data_reverse	= parport_ip32_data_reverse,
+	.data_forward		= parport_ip32_data_forward,
+	.data_reverse		= parport_ip32_data_reverse,
 
-	.init_state	= parport_ip32_init_state,
-	.save_state	= parport_ip32_save_state,
-	.restore_state	= parport_ip32_restore_state,
+	.init_state		= parport_ip32_init_state,
+	.save_state		= parport_ip32_save_state,
+	.restore_state		= parport_ip32_restore_state,
 
-	.epp_write_data = parport_ieee1284_epp_write_data,
-	.epp_read_data	= parport_ieee1284_epp_read_data,
-	.epp_write_addr = parport_ieee1284_epp_write_addr,
-	.epp_read_addr	= parport_ieee1284_epp_read_addr,
+	.epp_write_data		= parport_ieee1284_epp_write_data,
+	.epp_read_data		= parport_ieee1284_epp_read_data,
+	.epp_write_addr		= parport_ieee1284_epp_write_addr,
+	.epp_read_addr		= parport_ieee1284_epp_read_addr,
 
-	.ecp_write_data = parport_ieee1284_ecp_write_data,
-	.ecp_read_data	= parport_ieee1284_ecp_read_data,
-	.ecp_write_addr = parport_ieee1284_ecp_write_addr,
+	.ecp_write_data		= parport_ieee1284_ecp_write_data,
+	.ecp_read_data		= parport_ieee1284_ecp_read_data,
+	.ecp_write_addr		= parport_ieee1284_ecp_write_addr,
 
 	.compat_write_data	= parport_ieee1284_write_compat,
 	.nibble_read_data	= parport_ieee1284_read_nibble,
@@ -1822,19 +1822,20 @@ struct parport *parport_ip32_probe_port (unsigned long base,
 	/* Initialize parport structure. Be conservative. */
 	*ops = parport_ip32_ops;
 	*priv = (struct parport_ip32_private ){
-		.regs =		*regs,
-		.dcr_init =	DCR_SELECT | DCR_nINIT,
-		.ecr_init =	ECR_MODE_SPP | ECR_nERRINTR | ECR_SERVINTR,
-		.dcr_cache =	0,
-		.dcr_writable =	DCR_SELECT | DCR_nINIT |
-				DCR_AUTOFD | DCR_STROBE,
+		.regs			= *regs,
+		.dcr_init		= DCR_SELECT | DCR_nINIT,
+		.ecr_init		= ECR_MODE_SPP |
+					  ECR_nERRINTR | ECR_SERVINTR,
+		.dcr_cache		= 0,
+		.dcr_writable		= DCR_SELECT | DCR_nINIT |
+					  DCR_AUTOFD | DCR_STROBE,
 		/* Required for the first dump_parport_state */
-		.ecr_present =	!!(modes & PARPORT_MODE_ECP),
-		.pword =	1,
-		.fifo_depth =	0,
-		.readIntrThreshold = 0,
-		.writeIntrThreshold = 0,
-		.irq_mode =	PARPORT_IP32_IRQ_FWD,
+		.ecr_present		= !!(modes & PARPORT_MODE_ECP),
+		.pword			= 1,
+		.fifo_depth		= 0,
+		.readIntrThreshold	= 0,
+		.writeIntrThreshold	= 0,
+		.irq_mode		= PARPORT_IP32_IRQ_FWD,
 	};
 
 	p->private_data = priv;
