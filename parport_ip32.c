@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.31 2005-10-20 19:41:33 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.32 2005-10-21 14:21:38 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -801,12 +801,14 @@ static inline void __iomem *parport_ip32_fifo_addr (struct parport *port,
  * and parport_ip32_fwp_wait_interrupt which uses the help of interrupts.
  *
  * parport_ip32_fwp_wait_break checks if the waiting function should return
- * immediately.
+ * immediately or not.
  */
 
 static inline bool parport_ip32_fwp_wait_break (struct parport *port,
 						unsigned long expire)
 {
+	/* Time to resched? */
+	cond_resched ();
 	/* Timed out? */
 	if (time_after (jiffies, expire)) {
 		printk (KERN_DEBUG PPIP32
@@ -825,9 +827,6 @@ static inline bool parport_ip32_fwp_wait_break (struct parport *port,
 			"%s: nFault asserted low\n", port->name);
 		return true;
 	}
-	/* Time to resched? */
-	cond_resched ();
-
 	return false;
 }
 
