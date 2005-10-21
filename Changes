@@ -1,5 +1,10 @@
 v0.0.9 -- ...
 
+	* DocBook comments.
+	* Misc code cleanup.
+	* Defined READ/WRITE macros.
+	* Add missing parport_ip32 prefix to function names.
+	* Removed unused functions.
 	* Move cond_resched at the beginning of
 	  parport_ip32_fwp_wait_break.
 	* Fix test in parport_SPP_supported.
