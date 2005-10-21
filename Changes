@@ -1,3 +1,10 @@
+v0.0.9 -- ...
+
+	* Move cond_resched at the beginning of
+	  parport_ip32_fwp_wait_break.
+	* Fix test in parport_SPP_supported.
+	* Fix indentation.
+
 v0.0.8 -- Wed, 19 Oct 2005 21:38:36 +0200
 
 	* Changelog moved in separate file.
