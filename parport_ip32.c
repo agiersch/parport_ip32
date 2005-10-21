@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.32 2005-10-21 14:21:38 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.33 2005-10-21 16:04:10 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell <philb@gnu.org>
@@ -143,10 +143,12 @@
  */
 #if defined(MODULE)
 static struct sgi_mace __iomem *mace = NULL;
+
 static inline void iomap_mace_address (void)
 {
 	mace = ioremap (MACE_BASE, sizeof (struct sgi_mace));
 }
+
 static inline void iounmap_mace_address (void)
 {
 	iounmap (mace);
