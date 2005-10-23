@@ -1,8 +1,8 @@
-/* Low-level parallel port routines for built in port on SGI IP32
+/* Low-level parallel port routines for built-in port on SGI IP32
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.36 2005-10-22 20:16:17 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.37 2005-10-23 00:28:23 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,

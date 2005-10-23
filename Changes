@@ -2,7 +2,6 @@ v0.1 -- Sat, 22 Oct 2005 22:14:02 +0200
 
 	* DocBook comments.
 	* Misc code cleanup.
-	* Defined READ/WRITE macros.
 	* Add missing parport_ip32 prefix to function names.
 	* Removed unused functions.
 	* Move cond_resched at the beginning of
