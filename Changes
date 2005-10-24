@@ -1,3 +1,10 @@
+v0.2 -- ...
+
+	* The FIFO full bit doesn't look to be very reliable in
+	  forward transfer mode, don't count on it.
+	* Fix bug in parport_ip32_fifo_write_block_pio.
+	* Fix typos.
+
 v0.1 -- Sat, 22 Oct 2005 22:14:02 +0200
 
 	* DocBook comments.

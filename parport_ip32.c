@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.37 2005-10-23 00:28:23 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.38 2005-10-24 21:03:40 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -59,7 +59,7 @@
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.1"
+#define DRV_VERSION	"0.2pre"
 
 /*--- Some configuration defines ---------------------------------------*/
 
@@ -1064,11 +1064,12 @@ static int parport_ip32_fwp_wait_polling (struct parport *port)
 		/* Check FIFO state */
 		fifo_state = parport_ip32_read_econtrol (port);
 		fifo_state &= (ECR_F_FULL | ECR_F_EMPTY);
-		if (fifo_state == 0) {
-			/* Nor full, nor empty */
-			count = 1;
-			break;
-		} else if (fifo_state == ECR_F_EMPTY) {
+
+		/* We do nothing when the FIFO is nor full, nor empty.  It
+		 * appears that the FIFO full bit is not always reliable, the
+		 * FIFO state is sometimes wrongly reported, and the chip gets
+		 * confused if we give it another byte. */
+		if (fifo_state == ECR_F_EMPTY) {
 			/* FIFO is empty, fill it up */
 			count = priv->fifo_depth;
 			break;
@@ -1078,7 +1079,7 @@ static int parport_ip32_fwp_wait_polling (struct parport *port)
 			break;
 		}
 
-		/* FIFO is full, wait... */
+		/* Wait a moment... */
 		udelay (polling_interval);
 	} /* while (1) */
 
@@ -1118,6 +1119,9 @@ static int parport_ip32_fwp_wait_interrupt (struct parport *port)
 		/* Enable serviceIntr */
 		parport_ip32_frob_econtrol (port, ECR_SERVINTR, 0);
 
+		/* Enabling serviceIntr while the FIFO is empty does not
+		 * always generate an interrupt, so check for emptiness
+		 * now. */
 		ecr = parport_ip32_read_econtrol (port);
 		if (! (ecr & ECR_F_EMPTY)) {
 			/* FIFO is not empty: wait for an interrupt or a
@@ -1131,21 +1135,23 @@ static int parport_ip32_fwp_wait_interrupt (struct parport *port)
 		/* Disable serviceIntr */
 		parport_ip32_frob_econtrol (port, ECR_SERVINTR, ECR_SERVINTR);
 
-		/* There are three cases when we come here: either
-		 * writeIntrThreshold was reached, or it's time to check for
-		 * nFault, or a signal is pending.  The last two are checked
-		 * in parport_ip32_fwp_wait_break.  In any case, we first push
-		 * what we can into FIFO (this should be fast).
-		 */
 		fifo_state = ecr & (ECR_F_FULL | ECR_F_EMPTY);
-		if (fifo_state == 0) {
-			/* Nor full, nor empty */
-			count = (ecr & ECR_SERVINTR)?
-				priv->writeIntrThreshold: 1;
-			break;
-		} else if (fifo_state == ECR_F_EMPTY) {
+		if (fifo_state != ECR_F_EMPTY && ! (ecr & ECR_SERVINTR)) {
+			/* FIFO is not empty, and we did not get any
+			 * interrupt.  Either it's time to check for nFault,
+			 * or a signal is pending.  This is verified in
+			 * parport_ip32_fwp_wait_break, so we continue the
+			 * loop. */
+			continue;
+		}
+		if (fifo_state == ECR_F_EMPTY) {
 			/* FIFO is empty, fill it up */
 			count = priv->fifo_depth;
+			break;
+		} else if (fifo_state == 0) {
+			/* FIFO is not empty, but we can safely push
+			 * writeIntrThreshold bytes into it*/
+			count = priv->writeIntrThreshold;
 			break;
 		} else if (fifo_state == (ECR_F_FULL | ECR_F_EMPTY)) {
 			/* Something wrong happened */
@@ -1225,10 +1231,10 @@ static size_t parport_ip32_fifo_write_block_pio (struct parport *port,
 		pr_debug (PPIP32 "%s: .. push %lu byte%s\n", port->name,
 			  (unsigned long)count, (count > 1)? "s": "");
 
-		/* Write next bytes to FIFO */
+		/* Write next byte(s) to FIFO */
 		if (count == 1) {
 			parport_ip32_out (*bufp, fifo);
-			buf++, len--;
+			bufp++, left--;
 		} else {
 			parport_ip32_out_rep (fifo, bufp, count);
 			bufp += count, left -= count;
@@ -1340,9 +1346,9 @@ static unsigned int parport_ip32_get_fifo_residue (struct parport *port,
 	byte cnfga;
 
 	/* FIXME - We are missing one byte if the printer is off-line.  I
-	 * don't know how to detect this.  For the moment, the problem is
-	 * avoided by testing for BUSY in
-	 * parport_ip32_fifo_write_initialize().
+	 * don't know how to detect this.  It looks that the full bit is not
+	 * always reliable.  For the moment, the problem is avoided in most
+	 * cases by testing for BUSY in parport_ip32_fifo_write_initialize().
 	 */
 
 	pr_trace (port, "(0x%02x)", mode);
@@ -1375,8 +1381,9 @@ static unsigned int parport_ip32_get_fifo_residue (struct parport *port,
 	}
 
 	if (residue) {
-		pr_debug1 (PPIP32 "%s: %d PWords were left in FIFO\n",
-			   port->name, residue);
+		pr_debug1 (PPIP32 "%s: %d PWord%s left in FIFO\n",
+			   port->name, residue,
+			   (residue == 1)? " was": "s were");
 	}
 
 	/* Now reset the FIFO, change to Config mode, and clean up */
