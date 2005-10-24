@@ -1,4 +1,4 @@
-v0.2 -- ...
+v0.2 -- Mon, 24 Oct 2005 23:19:57 +0200
 
 	* The FIFO full bit doesn't look to be very reliable in
 	  forward transfer mode, don't count on it.

@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.38 2005-10-24 21:03:40 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.39 2005-10-24 21:20:52 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -59,7 +59,7 @@
 #define DRV_DESCRIPTION	"SGI IP32 built-in parallel port driver"
 #define DRV_AUTHOR	"Arnaud Giersch <arnaud.giersch@free.fr>"
 #define DRV_LICENSE	"GPL"
-#define DRV_VERSION	"0.2pre"
+#define DRV_VERSION	"0.2"
 
 /*--- Some configuration defines ---------------------------------------*/
 
@@ -1149,7 +1149,7 @@ static int parport_ip32_fwp_wait_interrupt (struct parport *port)
 			count = priv->fifo_depth;
 			break;
 		} else if (fifo_state == 0) {
-			/* FIFO is not empty, but we can safely push
+			/* FIFO is not empty, but we know that can safely push
 			 * writeIntrThreshold bytes into it*/
 			count = priv->writeIntrThreshold;
 			break;
