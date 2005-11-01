@@ -1,6 +1,23 @@
+v0.3.1 -- Tue, 01 Nov 2005 23:50:51 +0100
+
+	* Fix sparse warnings.
+	* Whitespace cleanup.
+	* Make irq and dma module parameters as Boolean.
+	* Remove useless paranoid checks about FIFO Full and Empty
+	  bits set together.
+	* Remove useless defines.
+	* Remove compilation options.
+	* Apply comments from Ralf Baechle <ralf@lmo>, that is:
+	  - Remove CONFIG_PARPORT_IP32_FIFO.
+	  - Remove declaration of mace for modules.
+	  - Remove DRV_* macros.
+	  - Remove byte and bool typedef's.
+	  - Remove wrapper functions around parport operations.
+	  - Remove useless cast in PRIV().
+
 v0.2 -- Mon, 24 Oct 2005 23:19:57 +0200
 
-	* The FIFO full bit doesn't look to be very reliable in
+	* The FIFO Full bit doesn't look to be very reliable in
 	  forward transfer mode, don't count on it.
 	* Fix bug in parport_ip32_fifo_write_block_pio.
 	* Fix typos.
@@ -9,8 +26,10 @@ v0.1 -- Sat, 22 Oct 2005 22:14:02 +0200
 
 	* First public release.
 
+
 # Local Variables:
 # mode: text
 # indent-tabs-mode: t
 # tab-width: 8
+# ispell-local-dictionary: "american"
 # End:
