@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.40 2005-11-01 22:53:45 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.41 2005-11-01 22:55:08 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -2094,7 +2094,7 @@ static int __init parport_ip32_init(void)
 	struct parport_ip32_regs regs;
 	unsigned int modes;
 
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.3.1\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.2.1\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 
 	parport_ip32_make_isa_registers(&regs,
@@ -2130,7 +2130,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.3.1");	/* update in parport_ip32_init() too */
+MODULE_VERSION("0.2.1");	/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
