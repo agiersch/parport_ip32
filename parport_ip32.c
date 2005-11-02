@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.41 2005-11-01 22:55:08 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.42 2005-11-02 20:19:31 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -134,10 +134,11 @@ static struct parport *this_port = NULL;
  * @eppData1:	EPP Data Register 1
  * @eppData2:	EPP Data Register 2
  * @eppData3:	EPP Data Register 3
- * @cFifo:	Parallel Port DATA FIFO
- * @ecpAFifo:	ECP FIFO (Address)
- * @ecpDFifo:	ECP FIFO (Data)
- * @tFifo:	Test FIFO
+ * @ecpAFifo:	ECP Address FIFO
+ * @fifo:	General FIFO register.  The same address is used for:
+ *		- cFifo, the Parallel Port DATA FIFO
+ *		- ecpDFifo, the ECP Data FIFO
+ *		- tFifo, the ECP Test FIFO
  * @cnfgA:	Configuration Register A
  * @cnfgB:	Configuration Register B
  * @ecr:	Extended Control Register
@@ -151,10 +152,8 @@ struct parport_ip32_regs {
 	void __iomem *eppData1;
 	void __iomem *eppData2;
 	void __iomem *eppData3;
-	void __iomem *cFifo;
 	void __iomem *ecpAFifo;
-	void __iomem *ecpDFifo;
-	void __iomem *tFifo;
+	void __iomem *fifo;
 	void __iomem *cnfgA;
 	void __iomem *cnfgB;
 	void __iomem *ecr;
@@ -306,10 +305,8 @@ parport_ip32_make_isa_registers(struct parport_ip32_regs *regs,
 		.eppData1	= r_base(5),
 		.eppData2	= r_base(6),
 		.eppData3	= r_base(7),
-		.cFifo		= r_base_hi(0),
 		.ecpAFifo	= r_base(0),
-		.ecpDFifo	= r_base_hi(0),
-		.tFifo		= r_base_hi(0),
+		.fifo		= r_base_hi(0),
 		.cnfgA		= r_base_hi(0),
 		.cnfgB		= r_base_hi(1),
 		.ecr		= r_base_hi(2)
@@ -907,26 +904,6 @@ static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 /*--- ECP mode functions (FIFO) ----------------------------------------*/
 
 /**
- * parport_ip32_fifo_addr - get address of FIFO register
- * @port:	pointer to &struct parport
- * @mode:	ECP operation mode
- *
- * Return address for FIFO register, according to mode @mode.
- */
-static inline void __iomem *parport_ip32_fifo_addr(struct parport *port,
-						   unsigned int mode)
-{
-	struct parport_ip32_private * const priv = PRIV(port);
-	void __iomem *fifo;
-	switch (mode & ECR_MODE_MASK) {
-	case ECR_MODE_PPF:	fifo = priv->regs.cFifo; break;
-	case ECR_MODE_ECP:	fifo = priv->regs.ecpDFifo; break;
-	default:		fifo = NULL; /* this should not happen! */
-	}
-	return fifo;
-}
-
-/**
  * parport_ip32_fwp_wait_break - check if the waiting function should return
  * @port:	pointer to &struct parport
  * @expire:	timeout expiring date, in jiffies
@@ -1108,7 +1085,7 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *port,
 						const void *buf, size_t len,
 						unsigned int mode)
 {
-	void __iomem * const fifo = parport_ip32_fifo_addr(port, mode);
+	struct parport_ip32_private * const priv = PRIV(port);
 	const u8 *bufp = buf;
 	size_t left = len;
 
@@ -1131,10 +1108,10 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *port,
 
 		/* Write next byte(s) to FIFO */
 		if (count == 1) {
-			parport_ip32_out(*bufp, fifo);
+			parport_ip32_out(*bufp, priv->regs.fifo);
 			bufp++, left--;
 		} else {
-			parport_ip32_out_rep(fifo, bufp, count);
+			parport_ip32_out_rep(priv->regs.fifo, bufp, count);
 			bufp += count, left -= count;
 		}
 	}
@@ -1234,11 +1211,9 @@ static unsigned int parport_ip32_drain_fifo(struct parport *port,
  *
  * This function resets FIFO, and returns the number of bytes remaining in it.
  */
-static unsigned int parport_ip32_get_fifo_residue(struct parport *port,
-						  unsigned int mode)
+static unsigned int parport_ip32_get_fifo_residue(struct parport *port)
 {
 	struct parport_ip32_private * const priv = PRIV(port);
-	void __iomem * const fifo = parport_ip32_fifo_addr(port, mode);
 	unsigned int residue;
 	unsigned int cnfga;
 
@@ -1248,7 +1223,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *port,
 	 * cases by testing for BUSY in parport_ip32_fifo_write_initialize().
 	 */
 
-	pr_trace(port, "(0x%02x)", mode);
+	pr_trace(port, "()");
 
 	if (parport_ip32_read_econtrol(port) & ECR_F_EMPTY) {
 		residue = 0;
@@ -1273,7 +1248,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *port,
 		for (residue = priv->fifo_depth; residue > 0; residue--) {
 			if (parport_ip32_read_econtrol(port) & ECR_F_FULL)
 				break;
-			parport_ip32_out(0x00, fifo);
+			parport_ip32_out(0x00, priv->regs.fifo);
 		}
 	}
 
@@ -1328,7 +1303,7 @@ static int parport_ip32_fifo_write_finalize(struct parport *port, int mode)
 				physport->cad->timeout * priv->fifo_depth);
 
 	/* Check for a potential residue */
-	residue = parport_ip32_get_fifo_residue(port, mode);
+	residue = parport_ip32_get_fifo_residue(port);
 
 	/* Then, wait for BUSY to get low. */
 	ready = !parport_wait_peripheral(port, DSR_nBUSY, DSR_nBUSY);
@@ -1791,7 +1766,7 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 			priv->fifo_depth = i;
 			break;
 		}
-		parport_ip32_out((u8 )i, priv->regs.tFifo);
+		parport_ip32_out((u8 )i, priv->regs.fifo);
 	}
 	if (i >= 1024) {
 		pr_probe(p, "Can't fill FIFO\n");
@@ -1810,7 +1785,7 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	 * if we get an interrupt. */
 	priv->writeIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
-		if (parport_ip32_in(priv->regs.tFifo) != (u8 )i) {
+		if (parport_ip32_in(priv->regs.fifo) != (u8 )i) {
 			pr_probe(p, "Invalid data in FIFO\n");
 			goto ecp_error;
 		}
@@ -1851,7 +1826,7 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	 * an interrupt. */
 	priv->readIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
-		parport_ip32_out(0xaa, priv->regs.tFifo);
+		parport_ip32_out(0xaa, priv->regs.fifo);
 		if (!priv->readIntrThreshold
 		    && parport_ip32_in(priv->regs.ecr) & ECR_SERVINTR) {
 			/* readIntrThreshold reached */
@@ -2094,7 +2069,7 @@ static int __init parport_ip32_init(void)
 	struct parport_ip32_regs regs;
 	unsigned int modes;
 
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.2.1\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.2.2pre\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 
 	parport_ip32_make_isa_registers(&regs,
@@ -2102,13 +2077,13 @@ static int __init parport_ip32_init(void)
 					&mace->isa.ecp1284,
 					8 /* regshift */);
 	modes = PARPORT_MODE_EPP | PARPORT_MODE_ECP;
-#define phyaddr(memb) (MACE_BASE + offsetof(struct sgi_mace, memb))
-	this_port = parport_ip32_probe_port(phyaddr(isa.parallel),
-					    phyaddr(isa.ecp1284),
+#define physaddr(memb) (MACE_BASE + offsetof(struct sgi_mace, memb))
+	this_port = parport_ip32_probe_port(physaddr(isa.parallel),
+					    physaddr(isa.ecp1284),
 					    MACEISA_PARALLEL_IRQ,
 					    PARPORT_DMA_NONE,
 					    &regs, modes);
-#undef phyaddr
+#undef physaddr
 	if (this_port == NULL) {
 		printk(KERN_DEBUG PPIP32 "failed to probe port\n");
 		return -ENODEV;
@@ -2130,7 +2105,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.2.1");	/* update in parport_ip32_init() too */
+MODULE_VERSION("0.2.2pre");	/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
