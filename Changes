@@ -1,5 +1,8 @@
-v0.2.2 -- ...
+v0.2.2 -- Sat, 05 Nov 2005 16:22:21 +0100
 
+	* "Make things simple" version.
+	* Change module parameters (again).    
+	* Simplify probing logic.
 	* Use only one member fifo instead of cFifo, ecpDFifo, and
 	  tFifo in parport_ip32_regs.
 

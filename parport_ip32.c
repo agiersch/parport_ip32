@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.42 2005-11-02 20:19:31 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.43 2005-11-05 15:23:32 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -81,6 +81,7 @@
 
 #include <linux/config.h>
 #include <linux/delay.h>
+#include <linux/err.h>
 #include <linux/init.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
@@ -94,6 +95,9 @@
 #include <asm/types.h>
 #include <asm/ip32/ip32_ints.h>
 #include <asm/ip32/mace.h>
+
+#undef BIT
+#define BIT(n) (1U << (n))
 
 /*--- Global variables -------------------------------------------------*/
 
@@ -109,15 +113,17 @@
 
 /*
  * These are the module parameters:
- * @param_verbose_probing:	log chit-chat during initialization
- * @use_irq:			use IRQ if available
- * @use_dma:			use DMA if available
- * @use_fifo:			use hardware FIFO modes if available
+ * @features:		bit mask of features to enable/disable
+ *			(all enabled by default)
+ * @verbose_probing:	log chit-chat during initialization
  */
-static int param_verbose_probing =	DEFAULT_VERBOSE_PROBING;
-static int use_irq =			1;
-static int use_dma =			1;
-static int use_fifo =			1;
+static unsigned int features =	~0U;
+#define PARPORT_IP32_ENABLE_IRQ	BIT(0)
+#define PARPORT_IP32_ENABLE_DMA	BIT(1)
+#define PARPORT_IP32_ENABLE_SPP	BIT(2)
+#define PARPORT_IP32_ENABLE_EPP	BIT(3)
+#define PARPORT_IP32_ENABLE_ECP	BIT(4)
+static int verbose_probing =	DEFAULT_VERBOSE_PROBING;
 
 /* We do not support more than one port. */
 static struct parport *this_port = NULL;
@@ -158,9 +164,6 @@ struct parport_ip32_regs {
 	void __iomem *cnfgB;
 	void __iomem *ecr;
 };
-
-#undef BIT
-#define BIT(n) (1U << (n))
 
 /* Device Status Register */
 #define DSR_nBUSY		BIT(7)	/* PARPORT_STATUS_BUSY */
@@ -237,13 +240,10 @@ enum parport_ip32_irq_mode { PARPORT_IP32_IRQ_FWD, PARPORT_IP32_IRQ_HERE };
 /**
  * struct parport_ip32_private - private stuff for &struct parport
  * @regs:		register addresses
- * @dcr_init:		initial value for DCR
- * @ecr_init:		initial value for ECR
  * @dcr_cache:		cached contents of DCR
  * @dcr_writable:	bit mask of writable DCR bits
- * @ecr_present:	is an ECR register present?
- * @fifo_depth:		number of PWords that FIFO will hold
  * @pword:		number of bytes per PWord
+ * @fifo_depth:		number of PWords that FIFO will hold
  * @readIntrThreshold:	minimum number of PWords we can read
  *			if we get an interrupt
  * @writeIntrThreshold:	minimum number of PWords we can write
@@ -253,13 +253,10 @@ enum parport_ip32_irq_mode { PARPORT_IP32_IRQ_FWD, PARPORT_IP32_IRQ_HERE };
  */
 struct parport_ip32_private {
 	struct parport_ip32_regs regs;
-	unsigned int dcr_init;
-	unsigned int ecr_init;
 	unsigned int dcr_cache;
 	unsigned int dcr_writable;
-	unsigned int ecr_present;
-	unsigned int fifo_depth;
 	unsigned int pword;
+	unsigned int fifo_depth;
 	unsigned int readIntrThreshold;
 	unsigned int writeIntrThreshold;
 	enum parport_ip32_irq_mode irq_mode;
@@ -275,45 +272,6 @@ struct parport_ip32_private {
  * not to forget the physport part.
  */
 #define PRIV(p) ((p)->physport->private_data)
-
-/*--- Generic functions ------------------------------------------------*/
-
-/**
- * parport_ip32_make_isa_registers - compute (ISA) register addresses
- * @regs:	pointer to &struct parport_ip32_regs to fill
- * @base:	base address of standard and EPP registers
- * @base_hi:	base address of ECP registers
- * @regshift:	how much to shift register offset by
- *
- * Compute register addresses, according to the ISA standard.  The addresses
- * of the standard and EPP registers are computed from address @base.  The
- * addresses of the ECP registers are computed from address @base_hi.
- */
-static void
-parport_ip32_make_isa_registers(struct parport_ip32_regs *regs,
-				void __iomem *base, void __iomem *base_hi,
-				unsigned int regshift)
-{
-#define r_base(offset)    ((u8 __iomem *)base    + ((offset) << regshift))
-#define r_base_hi(offset) ((u8 __iomem *)base_hi + ((offset) << regshift))
-	*regs = (struct parport_ip32_regs ){
-		.data		= r_base(0),
-		.dsr		= r_base(1),
-		.dcr		= r_base(2),
-		.eppAddr	= r_base(3),
-		.eppData0	= r_base(4),
-		.eppData1	= r_base(5),
-		.eppData2	= r_base(6),
-		.eppData3	= r_base(7),
-		.ecpAFifo	= r_base(0),
-		.fifo		= r_base_hi(0),
-		.cnfgA		= r_base_hi(0),
-		.cnfgB		= r_base_hi(1),
-		.ecr		= r_base_hi(2)
-	};
-#undef r_base_hi
-#undef r_base
-}
 
 /*--- I/O register access functions ------------------------------------*/
 
@@ -389,7 +347,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 	unsigned int i;
 
 	printk(KERN_DEBUG PPIP32 "%s: state (%s):\n", p->name, str);
-	if (priv->ecr_present) {
+	{
 		static const char ecr_modes[8][4] = {"SPP", "PS2", "PPF",
 						     "ECP", "EPP", "???",
 						     "TST", "CFG"};
@@ -404,7 +362,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		if (ecr & ECR_F_EMPTY)	printk(",f_empty");
 		printk("\n");
 	}
-	if (priv->ecr_present && show_ecp_config) {
+	if (show_ecp_config) {
 		unsigned int oecr, cnfgA, cnfgB;
 		oecr = parport_ip32_in(priv->regs.ecr);
 		parport_ip32_out(ECR_MODE_PS2, priv->regs.ecr);
@@ -502,11 +460,11 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
  */
 #define __pr_trace(pr, p, fmt, ...)					\
 	pr("%s: %s" fmt "\n", (p)->name, __func__ , ##__VA_ARGS__)
-#define pr_trace(p, fmt, ...)	__pr_trace(pr_debug, p, fmt, __VA_ARGS__ )
-#define pr_trace1(p, fmt, ...)	__pr_trace(pr_debug1, p, fmt, __VA_ARGS__ )
+#define pr_trace(p, fmt, ...)	__pr_trace(pr_debug, p, fmt, __VA_ARGS__)
+#define pr_trace1(p, fmt, ...)	__pr_trace(pr_debug1, p, fmt, __VA_ARGS__)
 
 /**
- * __pr_probe, pr_probe - print message if @param_verbose_probing is true
+ * __pr_probe, pr_probe - print message if @verbose_probing is true
  * @p:		pointer to &struct parport
  * @fmt:	printk format string
  * @...:	parameters for format string
@@ -514,9 +472,9 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
  * For new lines, use pr_probe().  Use __pr_probe() for continued lines.
  */
 #define __pr_probe(...)							\
-	do { if (param_verbose_probing) printk( __VA_ARGS__ ); } while (0)
+	do { if (verbose_probing) printk(__VA_ARGS__); } while (0)
 #define pr_probe(p, fmt, ...)						\
-	__pr_probe(KERN_DEBUG PPIP32 "0x%lx: " fmt, (p)->base , ##__VA_ARGS__)
+	__pr_probe(KERN_INFO PPIP32 "0x%lx: " fmt, (p)->base , ##__VA_ARGS__)
 
 /*--- Some utility function to manipulate ECR register -----------------*/
 
@@ -782,10 +740,9 @@ static inline void parport_ip32_data_reverse(struct parport *p)
 static inline void parport_ip32_init_state(struct pardevice *dev,
 					   struct parport_state *s)
 {
-	struct parport_ip32_private * const priv = PRIV(dev->port);
 	pr_trace(dev->port, "(%s, %p)", dev->name, s);
-	s->u.ip32.dcr = priv->dcr_init;
-	s->u.ip32.ecr = priv->ecr_init;
+	s->u.ip32.dcr = DCR_SELECT | DCR_nINIT;
+	s->u.ip32.ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
 }
 
 /**
@@ -794,12 +751,9 @@ static inline void parport_ip32_init_state(struct pardevice *dev,
 static inline void parport_ip32_save_state(struct parport *p,
 					   struct parport_state *s)
 {
-	struct parport_ip32_private * const priv = PRIV(p);
 	pr_trace(p, "(%p)", s);
 	s->u.ip32.dcr = __parport_ip32_read_control(p);
-	if (priv->ecr_present) {
-		s->u.ip32.ecr = parport_ip32_read_econtrol(p);
-	}
+	s->u.ip32.ecr = parport_ip32_read_econtrol(p);
 }
 
 /**
@@ -808,12 +762,9 @@ static inline void parport_ip32_save_state(struct parport *p,
 static inline void parport_ip32_restore_state(struct parport *p,
 					      struct parport_state *s)
 {
-	struct parport_ip32_private * const priv = PRIV(p);
 	pr_trace(p, "(%p)", s);
-	if (priv->ecr_present) {
-		parport_ip32_set_mode(p,  s->u.ip32.ecr & ECR_MODE_MASK);
-		parport_ip32_write_econtrol(p, s->u.ip32.ecr);
-	}
+	parport_ip32_set_mode(p,  s->u.ip32.ecr & ECR_MODE_MASK);
+	parport_ip32_write_econtrol(p, s->u.ip32.ecr);
 	__parport_ip32_write_control(p, s->u.ip32.dcr);
 }
 
@@ -865,12 +816,12 @@ static void parport_ip32_timeout(unsigned long data)
 
 /*--- EPP mode functions -----------------------------------------------*/
 
+#if 0				/* FIXME - not used yet */
 /**
  * parport_ip32_clear_epp_timeout - clear Timeout bit in EPP mode
  * @p:	pointer to &struct parport
  *
- * Returns 1 if the Timeout bit is clear, and 0 otherwise.  This is also used
- * in SPP and PS2 detection.
+ * Returns 1 if the Timeout bit is clear, and 0 otherwise.
  */
 static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 {
@@ -896,6 +847,7 @@ static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 	pr_trace(p, "(): %s", cleared? "cleared": "failed");
 	return cleared;
 }
+#endif
 
 /*
  * FIXME - Insert here parport_ip32_epp_{read,write}_{data,address}().
@@ -987,13 +939,14 @@ static unsigned int parport_ip32_fwp_wait_polling(struct parport *port)
 static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *port)
 {
 	static const unsigned int nfault_check_interval = 100; /* msecs */
+	static unsigned int lost_interrupt = 0;
 	struct parport_ip32_private * const priv = PRIV(port);
 	struct parport * const physport = port->physport;
-	DEFINE_TIMER(timer, parport_ip32_timeout, 0, (unsigned long )port);
+	DEFINE_TIMER(timer, parport_ip32_timeout, 0, (unsigned long)port);
 	unsigned int ecr;
 	unsigned long nfault_timeout =
 		min(msecs_to_jiffies(nfault_check_interval),
-		    (unsigned long )physport->cad->timeout);
+		    (unsigned long)physport->cad->timeout);
 	unsigned long expire = jiffies + physport->cad->timeout;
 	unsigned int count = 0;
 
@@ -1018,6 +971,12 @@ static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *port)
 			down_interruptible(&priv->irq);
 			del_timer(&timer);
 			ecr = parport_ip32_read_econtrol(port);
+			if ((ecr & ECR_F_EMPTY) && !(ecr & ECR_SERVINTR)
+			    && !lost_interrupt) {
+				printk(KERN_WARNING PPIP32
+				       "%s: lost interrupt\n", port->name);
+				lost_interrupt = 1;
+			}
 		}
 
 		/* Disable serviceIntr */
@@ -1358,15 +1317,14 @@ static size_t parport_ip32_fifo_write_block(struct parport *port,
 	}
 	ready_before = 1;
 
-	pr_trace(port, " -> len=%lu", (unsigned long )len);
+	pr_trace(port, " -> len=%lu", (unsigned long)len);
 
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 	priv->irq_mode = PARPORT_IP32_IRQ_HERE;
 
-	/* FIXME - Use parport_ip32_fifo_write_block_dma when available, and
-	 * use_dma is true, and port->dma != PARPORT_DMA_NONE.  Maybe some
-	 * threshold value should be set for @len under which we revert to PIO
-	 * mode?
+	/* FIXME - Use parport_ip32_fifo_write_block_dma when available.
+	 * Maybe some threshold value should be set for @len under which we
+	 * revert to PIO mode?
 	 */
 	written = parport_ip32_fifo_write_block_pio(port, buf, len, mode);
 
@@ -1379,7 +1337,7 @@ static size_t parport_ip32_fifo_write_block(struct parport *port,
 	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
 	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
 
-	pr_trace(port, " <- written=%lu", (unsigned long )written);
+	pr_trace(port, " <- written=%lu", (unsigned long)written);
 
 out:
 	return written;
@@ -1403,8 +1361,7 @@ static size_t parport_ip32_compat_write_data(struct parport *port,
 
 	/* Special case: a timeout of zero means we cannot call schedule().
 	 * Also if O_NONBLOCK is set then use the default implementation. */
-	if (!use_fifo
-	    || physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK) {
+	if (physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK) {
 		written = parport_ieee1284_write_compat(port, buf, len,
 							flags);
 	} else {
@@ -1459,23 +1416,18 @@ static __initdata struct parport_operations parport_ip32_ops = {
 /*--- Device detection -------------------------------------------------*/
 
 /**
- * parport_ip32_ecr_supported - check if the ECR is functional
- * @p:	pointer to the &parport structure
+ * parport_ip32_ecp_supported - check for an ECP port
+ * @p: pointer to the &parport structure
  *
- * Returns 1 if the Extended Control Register is functional.  Returns 0
- * otherwise.  Adjust parameters in the &parport structure.  On return, the
+ * Returns 1 if an ECP port is found, and 0 otherwise.  This function actually
+ * checks if an Extended Control Register seems to be present.  On return, the
  * port is placed in SPP mode.
- *
- * Old style XT ports alias IO ports every 0x400, hence accessing ECR on these
- * cards actually accesses the DCR.  Modern cards don't do this but reading
- * from ECR will return 0xff regardless of what is written here if the card
- * does NOT support ECP.
  *
  * We first check to see if ECR is the same as DCR.  If not, the low two bits
  * of ECR aren't writable, so we check by writing ECR and reading it back to
  * see if it's what we expect.
  */
-static __init unsigned int parport_ip32_ecr_supported(struct parport *p)
+static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 {
 	struct parport_ip32_private * const priv = PRIV(p);
 	unsigned int dcr, ecr, mask;
@@ -1489,247 +1441,47 @@ static __init unsigned int parport_ip32_ecr_supported(struct parport *p)
 		parport_ip32_out(dcr ^ mask, priv->regs.dcr);
 		dcr = parport_ip32_in(priv->regs.dcr);
 		if ((parport_ip32_in(priv->regs.ecr) & mask) == (dcr & mask))
-			goto no_reg; /* Sure that no ECR register exists */
+			goto fail; /* Sure that no ECR register exists */
 	}
 
 	ecr = parport_ip32_in(priv->regs.ecr) & (ECR_F_FULL | ECR_F_EMPTY);
 	if (ecr != ECR_F_EMPTY)
-		goto no_reg;
+		goto fail;
 
 	ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
 	parport_ip32_out(ecr, priv->regs.ecr);
 	if (parport_ip32_in(priv->regs.ecr) != (ecr | ECR_F_EMPTY))
-		goto no_reg;
+		goto fail;
 
 	pr_probe(p, "Found working ECR register\n");
-	ecr = ECR_MODE_SPP | ECR_nERRINTR | ECR_SERVINTR;
-	priv->ecr_present = 1;
-	priv->ecr_init = ecr;
+	parport_ip32_set_mode(p, ECR_MODE_SPP);
 	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
-	parport_ip32_write_econtrol(p, ecr);
 	return 1;
 
-no_reg:
+fail:
 	pr_probe(p, "ECR register not found\n");
-	priv->ecr_present = 0;
 	return 0;
 }
 
 /**
- * parport_ip32_spp_supported - check for SPP mode
+ * parport_ip32_fifo_supported - check for FIFO parameters
  * @p:	pointer to the &parport structure
  *
- * All ports support SPP mode.  Returns 1 if the port behaves correctly.
- * Returns 0 if there is something wrong.  Adjust parameters in the parport
- * structure.
+ * Check for FIFO parameters of an Extended Capabilities Port.  Returns 1 on
+ * success, and 0 otherwise.  Adjust FIFO parameters in the parport structure.
+ * On return, the port is placed in SPP mode.
  */
-static __init unsigned int parport_ip32_spp_supported(struct parport *p)
-{
-	struct parport_ip32_private * const priv = PRIV(p);
-	unsigned int r, w;
-
-	if (priv->ecr_present) {
-		parport_ip32_set_mode(p, ECR_MODE_SPP);
-	}
-
-	/* first clear an eventually pending EPP timeout
-	 * I (sailer@ife.ee.ethz.ch) have an SMSC chipset
-	 * that does not even respond to SPP cycles if an EPP
-	 * timeout is pending
-	 */
-	parport_ip32_clear_epp_timeout(p);
-
-	/* Do a simple read-write test to make sure the port exists. */
-	w = 0x0c;		/* DCR_SELECT | DCR_nINIT */
-	parport_ip32_out(w, priv->regs.dcr);
-
-	/* Is there a control register that we can read from?  We do not care,
-	 * as read_control just returns a software copy. */
-
-	/* Try the data register.  The data lines aren't tri-stated at
-	 * this stage, so we expect back what we wrote. */
-	w = 0xaa;
-	parport_ip32_write_data(p, w);
-	r = parport_ip32_read_data(p);
-	if (r != w)
-		goto spp_nok;
-	w = 0x55;
-	parport_ip32_write_data(p, w);
-	r = parport_ip32_read_data(p);
-	if (r != w)
-		goto spp_nok;
-
-	pr_probe(p, "Found working SPP register\n");
-	p->modes |= PARPORT_MODE_PCSPP;
-	/* FIXME - What does SAFEININT exactly mean?  Is there some method to
-	 * safely test for it?  Activate it unless someone complains.
-	 */
-	p->modes |= PARPORT_MODE_SAFEININT;
-	priv->dcr_init = DCR_SELECT | DCR_nINIT;
-	parport_ip32_write_control(p, priv->dcr_init);
-	return 1;
-
-spp_nok:
-	/* No parallel port found. */
-	pr_probe(p, "SPP register not found\n");
-	return 0;
-}
-
-/**
- * parport_ip32_ps2_supported - check for bidirectional mode
- * @p:	pointer to the &parport structure
- *
- * Returns 1 if the port supports bidirectional (a.k.a. PS/2) mode.  Returns 0
- * otherwise.  Adjust parameters in the &parport structure.
- *
- * Bit DCR_DIR sets the PS/2 data direction; setting this high allows us to
- * read data from the data lines.  In theory we would get back 0xff but any
- * peripheral attached to the port may drag some or all of the lines down to
- * zero.  So if we get back anything that isn't the contents of the data
- * register we deem PS/2 support to be present.
- */
-static __init unsigned int parport_ip32_ps2_supported(struct parport *p)
-{
-	struct parport_ip32_private * const priv = PRIV(p);
-	unsigned int ok = 0;
-
-	if (priv->ecr_present) {
-		parport_ip32_set_mode(p, ECR_MODE_PS2);
-	}
-
-	parport_ip32_clear_epp_timeout(p);
-
-	/* Try to tri-state the buffer. */
-	priv->dcr_writable |= DCR_DIR;
-	parport_ip32_data_reverse(p);
-
-	parport_ip32_write_data(p, 0x55);
-	ok = ok || (parport_ip32_read_data(p) != 0x55);
-	parport_ip32_write_data(p, 0xaa);
-	ok = ok || (parport_ip32_read_data(p) != 0xaa);
-
-	pr_probe(p, "PS2 mode%s supported\n", ok? "": " not");
-
-	/* cancel input mode */
-	parport_ip32_data_forward(p);
-
-	if (ok) {
-		p->modes |= PARPORT_MODE_TRISTATE;
-		/* change default mode to PS2 */
-		priv->ecr_init &= ~ECR_MODE_MASK;
-		priv->ecr_init |= ECR_MODE_PS2;
-	} else {
-		priv->dcr_writable &= ~DCR_DIR;
-	}
-
-	if (priv->ecr_present) {
-		parport_ip32_write_econtrol(p, priv->ecr_init);
-	}
-
-	return ok;
-}
-
-/**
- * parport_ip32_epp_supported - check for Enhanced Parallel Port
- * @p:	pointer to the &parport structure
- *
- * Check for Enhanced Parallel Port.  Returns 1 if EPP mode is supported, and
- * 0 otherwise.  Adjust parameters in the &parport structure.
- */
-static __init unsigned int parport_ip32_epp_supported(struct parport *p)
-{
-	struct parport_ip32_private * const priv = PRIV(p);
-	unsigned int ok;
-
-	if (priv->ecr_present) {
-		parport_ip32_set_mode(p, ECR_MODE_EPP);
-	}
-
-	/* If EPP timeout bit clear then EPP available */
-	ok = parport_ip32_clear_epp_timeout(p);
-
-	pr_probe(p, "EPP mode%s supported\n", ok? "": " not");
-
-	if (ok) {
-		/* Set up access functions to use EPP hardware. */
-#if 0				/* not implemented */
-		p->ops->epp_read_data = parport_ip32_epp_read_data;
-		p->ops->epp_write_data = parport_ip32_epp_write_data;
-		p->ops->epp_read_addr = parport_ip32_epp_read_addr;
-		p->ops->epp_write_addr = parport_ip32_epp_write_addr;
-		p->modes |= PARPORT_MODE_EPP;
-		pr_probe(p, "Hardware support for EPP mode enabled\n");
-#endif
-	}
-
-	if (priv->ecr_present) {
-		parport_ip32_write_econtrol(p, priv->ecr_init);
-	}
-
-	return ok;
-}
-
-/**
- * parport_ip32_ecp_supported - check for Extended Capabilities Port
- * @p:	pointer to the &parport structure
- *
- * Check for Extended Capabilities Port.  Returns 1 if an ECP port is found,
- * and 0 otherwise.  Adjust parameters in the parport structure.  Actually the
- * main job of this function is to check if the FIFO is working correctly, and
- * to find its parameters.  It also enables hardware compatibility mode.
- */
-static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
+static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 {
 	struct parport_ip32_private * const priv = PRIV(p);
 	unsigned int configa, configb;
 	unsigned int pword;
 	unsigned int i;
 
-	/* If there is no ECR, we have no hope of supporting ECP. */
-	if (!priv->ecr_present)
-		return 0;
-	/* We must be able to tri-state the port. */
-	if (!(p->modes & PARPORT_MODE_TRISTATE)) {
-		pr_probe(p, "ECP modes not checked (can't TRISTATE)\n");
-		return 0;
-	}
-
 	/* Configuration mode */
 	parport_ip32_set_mode(p, ECR_MODE_CFG);
-
 	configa = parport_ip32_in(priv->regs.cnfgA);
 	configb = parport_ip32_in(priv->regs.cnfgB);
-
-	pr_probe(p, "ECP port cnfgA=0x%02x cnfgB=0x%02x\n", configa, configb);
-	pr_probe(p, "Interrupts are ISA-%s\n",
-		 (configa & CNFGA_IRQ)? "Level": "Pulses");
-	pr_probe(p, "ECP settings irq=");
-	if (CNFGB_IRQ(configb)) {
-		__pr_probe("%d", CNFGB_IRQ(configb));
-	} else {
-		__pr_probe("<none or set by other means>");
-	}
-	__pr_probe(" dma=");
-	if (CNFGB_DMA(configb)) {
-		__pr_probe("%d\n", CNFGB_DMA(configb));
-	} else {
-		__pr_probe("<none or set by other means>\n");
-	}
-
-	/* Check for interrupt conflict */
-	if (!(configb & CNFGB_INTRVAL) && p->irq != PARPORT_IRQ_NONE) {
-		printk(KERN_NOTICE PPIP32
-		       "0x%lx: IRQ conflict detected, disabling IRQ\n",
-		       p->base);
-		p->irq = PARPORT_IRQ_NONE;
-	}
-
-	/* Check for compression support */
-	parport_ip32_out(configb | CNFGB_COMPRESS, priv->regs.cnfgB);
-	if (parport_ip32_in(priv->regs.cnfgB) & CNFGB_COMPRESS) {
-		pr_probe(p, "Hardware compression detected (unsupported)\n");
-	}
-	parport_ip32_out(configb & ~CNFGB_COMPRESS, priv->regs.cnfgB);
 
 	/* Find out PWord size */
 	switch (configa & CNFGA_ID_MASK) {
@@ -1739,15 +1491,22 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	default:
 		pr_probe(p, "Unknown implementation ID: 0x%0x\n",
 			 (configa & CNFGA_ID_MASK) >> CNFGA_ID_SHIFT);
-		goto ecp_error;
+		goto fail;
 		break;
 	}
 	if (pword != 1) {
 		pr_probe(p, "Unsupported PWord size: %u\n", pword);
-		goto ecp_error;
+		goto fail;
 	}
 	priv->pword = pword;
 	pr_probe(p, "PWord is %u bits\n", 8 * priv->pword);
+
+	/* Check for compression support */
+	parport_ip32_out(configb | CNFGB_COMPRESS, priv->regs.cnfgB);
+	if (parport_ip32_in(priv->regs.cnfgB) & CNFGB_COMPRESS) {
+		pr_probe(p, "Hardware compression detected (unsupported)\n");
+	}
+	parport_ip32_out(configb & ~CNFGB_COMPRESS, priv->regs.cnfgB);
 
 	/* Reset FIFO and go in test mode (no interrupt, no DMA) */
 	parport_ip32_set_mode(p, ECR_MODE_TST);
@@ -1755,7 +1514,7 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	/* FIFO must be empty now */
 	if (!(parport_ip32_in(priv->regs.ecr) & ECR_F_EMPTY)) {
 		pr_probe(p, "FIFO not reset\n");
-		goto ecp_error;
+		goto fail;
 	}
 
 	/* Find out FIFO depth. */
@@ -1766,15 +1525,15 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 			priv->fifo_depth = i;
 			break;
 		}
-		parport_ip32_out((u8 )i, priv->regs.fifo);
+		parport_ip32_out((u8)i, priv->regs.fifo);
 	}
 	if (i >= 1024) {
 		pr_probe(p, "Can't fill FIFO\n");
-		goto ecp_error;
+		goto fail;
 	}
 	if (!priv->fifo_depth) {
 		pr_probe(p, "Can't get FIFO depth\n");
-		goto ecp_error;
+		goto fail;
 	}
 	pr_probe(p, "FIFO is %u PWords deep\n", priv->fifo_depth);
 
@@ -1785,9 +1544,9 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	 * if we get an interrupt. */
 	priv->writeIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
-		if (parport_ip32_in(priv->regs.fifo) != (u8 )i) {
+		if (parport_ip32_in(priv->regs.fifo) != (u8)i) {
 			pr_probe(p, "Invalid data in FIFO\n");
-			goto ecp_error;
+			goto fail;
 		}
 		if (!priv->writeIntrThreshold
 		    && parport_ip32_in(priv->regs.ecr) & ECR_SERVINTR) {
@@ -1798,19 +1557,19 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 		    && parport_ip32_in(priv->regs.ecr) & ECR_F_EMPTY) {
 			/* FIFO empty before the last byte? */
 			pr_probe(p, "Data lost in FIFO\n");
-			goto ecp_error;
+			goto fail;
 		}
 	}
 	if (!priv->writeIntrThreshold) {
 		pr_probe(p, "Can't get writeIntrThreshold\n");
-		goto ecp_error;
+		goto fail;
 	}
 	pr_probe(p, "writeIntrThreshold is %u\n", priv->writeIntrThreshold);
 
 	/* FIFO must be empty now */
 	if (!(parport_ip32_in(priv->regs.ecr) & ECR_F_EMPTY)) {
 		pr_probe(p, "Can't empty FIFO\n");
-		goto ecp_error;
+		goto fail;
 	}
 
 	/* Reset FIFO */
@@ -1835,169 +1594,165 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	}
 	if (!priv->readIntrThreshold) {
 		pr_probe(p, "Can't get readIntrThreshold\n");
-		goto ecp_error;
+		goto fail;
 	}
 	pr_probe(p, "readIntrThreshold is %u\n", priv->readIntrThreshold);
 
 	/* Reset ECR */
 	parport_ip32_set_mode(p, ECR_MODE_PS2);
 	parport_ip32_data_forward(p);
-	parport_ip32_write_econtrol(p, priv->ecr_init);
-
-	/* Enable FIFO compatibility mode */
-	p->ops->compat_write_data = parport_ip32_compat_write_data;
-	p->modes |= PARPORT_MODE_COMPAT;
-	pr_probe(p, "Hardware support for compatibility mode enabled\n");
-
-#if 0				/* not implemented */
-	p->ops->ecp_write_data = parport_ip32_ecp_write_data,
-	p->ops->ecp_read_data  = parport_ip32_ecp_read_data,
-	p->ops->ecp_write_addr = parport_ip32_ecp_write_addr,
-	p->modes |= PARPORT_MODE_ECP;
-	pr_probe(p, "Hardware support for ECP modes enabled\n");
-#endif
-
+	parport_ip32_set_mode(p, ECR_MODE_SPP);
 	return 1;
 
-ecp_error:
+fail:
 	priv->fifo_depth = 0;
-	parport_ip32_write_econtrol(p, priv->ecr_init);
+	parport_ip32_set_mode(p, ECR_MODE_SPP);
 	return 0;
 }
 
 /**
- * parport_ip32_probe_port - probe and register a new port
- * @base:	base I/O address for standard and EPP registers
- * @base_hi:	base I/O address for ECP registers
- * @irq:	IRQ line to use
- * @dma:	DMA channel to use
- * @regs:	pointer to the port register addresses structure
- *		NOTE: the structure is copied and can safely be freed
- *		      after call
- * @modes:	bit mask of extended modes to probe, combination of
- *		PARPORT_MODE_EPP and PARPORT_MODE_ECP
+ * parport_ip32_make_isa_registers - compute (ISA) register addresses
+ * @regs:	pointer to &struct parport_ip32_regs to fill
+ * @base:	base address of standard and EPP registers
+ * @base_hi:	base address of ECP registers
+ * @regshift:	how much to shift register offset by
  *
- * Returns the new allocated &parport structure.  Parameters @base and
- * @base_hi are only used to fill in the &parport structure.
+ * Compute register addresses, according to the ISA standard.  The addresses
+ * of the standard and EPP registers are computed from address @base.  The
+ * addresses of the ECP registers are computed from address @base_hi.
  */
-static __init
-struct parport *parport_ip32_probe_port(unsigned long base,
-					unsigned long base_hi,
-					int irq, int dma,
-					const struct parport_ip32_regs *regs,
-					unsigned int modes)
+static void __init
+parport_ip32_make_isa_registers(struct parport_ip32_regs *regs,
+				void __iomem *base, void __iomem *base_hi,
+				unsigned int regshift)
 {
-	struct parport_ip32_private *priv;
-	struct parport_operations *ops;
-	struct parport *p;
+#define r_base(offset)    ((u8 __iomem *)base    + ((offset) << regshift))
+#define r_base_hi(offset) ((u8 __iomem *)base_hi + ((offset) << regshift))
+	*regs = (struct parport_ip32_regs){
+		.data		= r_base(0),
+		.dsr		= r_base(1),
+		.dcr		= r_base(2),
+		.eppAddr	= r_base(3),
+		.eppData0	= r_base(4),
+		.eppData1	= r_base(5),
+		.eppData2	= r_base(6),
+		.eppData3	= r_base(7),
+		.ecpAFifo	= r_base(0),
+		.fifo		= r_base_hi(0),
+		.cnfgA		= r_base_hi(0),
+		.cnfgB		= r_base_hi(1),
+		.ecr		= r_base_hi(2)
+	};
+#undef r_base_hi
+#undef r_base
+}
 
-	switch (irq) {
-	case PARPORT_IRQ_AUTO:
-	case PARPORT_IRQ_PROBEONLY:
-		printk(KERN_DEBUG PPIP32 "irq probing is not supported\n");
-		irq = PARPORT_IRQ_NONE;
-		break;
-	}
+/**
+ * parport_ip32_probe_port - probe and register IP32 built-in parallel port
+ *
+ * Returns the new allocated &parport structure.  On error, an error code is
+ * encoded in return value with the ERR_PTR function.
+ */
+static __init struct parport *parport_ip32_probe_port(void)
+{
+	struct parport_ip32_regs regs;
+	struct parport_ip32_private *priv = NULL;
+	struct parport_operations *ops = NULL;
+	struct parport *p = NULL;
+	unsigned int fifo_supported;
+	int err;
 
-	switch (dma) {
-	case PARPORT_DMA_AUTO:
-		printk(KERN_DEBUG PPIP32 "dma probing is not supported\n");
-	case PARPORT_DMA_NOFIFO:
-		dma = PARPORT_DMA_NONE;
-		break;
-	}
+	parport_ip32_make_isa_registers(&regs, &mace->isa.parallel,
+					&mace->isa.ecp1284, 8 /* regshift */);
 
 	ops = kmalloc(sizeof(struct parport_operations), GFP_KERNEL);
 	priv = kmalloc(sizeof(struct parport_ip32_private), GFP_KERNEL);
-	/* A misnomer, actually it's allocate and reserve parport number. */
-	p = parport_register_port(base, irq, dma, ops);
-	if (!ops || !priv || !p) {
-		goto error;
+	p = parport_register_port(0, PARPORT_IRQ_NONE, PARPORT_DMA_NONE, ops);
+	if (ops == NULL || priv == NULL || p == NULL) {
+		err = -ENOMEM;
+		goto fail;
 	}
+	p->base = MACE_BASE + offsetof(struct sgi_mace, isa.parallel);
+	p->base_hi = MACE_BASE + offsetof(struct sgi_mace, isa.ecp1284);
+	p->private_data = priv;
 
-	/* Initialize parport structure. Be conservative. */
 	*ops = parport_ip32_ops;
-	*priv = (struct parport_ip32_private ){
-		.regs			= *regs,
-		.dcr_init		= DCR_SELECT | DCR_nINIT,
-		.ecr_init		= ECR_MODE_SPP |
-					  ECR_nERRINTR | ECR_SERVINTR,
-		.dcr_cache		= 0,
-		.dcr_writable		= DCR_SELECT | DCR_nINIT |
+	*priv = (struct parport_ip32_private){
+		.regs			= regs,
+		.dcr_writable		= DCR_DIR | DCR_SELECT | DCR_nINIT |
 					  DCR_AUTOFD | DCR_STROBE,
-		/* Required for the first parport_ip32_dump_state */
-		.ecr_present		= !!(modes & PARPORT_MODE_ECP),
-		.pword			= 1,
-		.fifo_depth		= 0,
-		.readIntrThreshold	= 0,
-		.writeIntrThreshold	= 0,
 		.irq_mode		= PARPORT_IP32_IRQ_FWD,
 	};
 
-	p->private_data = priv;
-	p->base_hi = base_hi;
-
-	parport_ip32_dump_state(p, "begin init", 1);
-
-	/* First, check if we can use the Extended Control Register. */
-	if (modes & PARPORT_MODE_ECP) {
-		parport_ip32_ecr_supported(p);
+	if (!parport_ip32_ecp_supported(p)) {
+		err = -ENODEV;
+		goto fail;
 	}
-	parport_ip32_dump_state(p, "after ECR test", 0);
+	fifo_supported = parport_ip32_fifo_supported(p);
 
-	/* If SPP mode does not work, we can't go very far. */
-	if (!parport_ip32_spp_supported(p)) {
-		goto error;
-	}
-	parport_ip32_dump_state(p, "after SPP test", 0);
-
-	/* Is the port bidirectional? */
-	parport_ip32_ps2_supported(p);
-	parport_ip32_dump_state(p, "after PS2 test", 0);
-
-	if (modes & PARPORT_MODE_EPP) {
-		parport_ip32_epp_supported(p);
-	}
-	parport_ip32_dump_state(p, "after EPP test", 0);
-
-	if (priv->ecr_present) {
-		parport_ip32_ecp_supported(p);
-	}
-	parport_ip32_dump_state(p, "after ECP test", 0);
+	/* We found what looks like a working ECR register.  Simply assume
+	 * that all modes are correctly supported.  Enable basic modes.*/
+	p->modes = PARPORT_MODE_PCSPP | PARPORT_MODE_SAFEININT;
+	p->modes |= PARPORT_MODE_TRISTATE;
 
 	/* Request IRQ */
-	if (use_irq && p->irq != PARPORT_IRQ_NONE) {
-		if (request_irq(p->irq, parport_ip32_interrupt,
-				0, p->name, p)) {
-			printk(KERN_NOTICE PPIP32 "%s: irq %d in use, "
+	if (features & PARPORT_IP32_ENABLE_IRQ) {
+		int irq = MACEISA_PARALLEL_IRQ;
+		if (request_irq(irq, parport_ip32_interrupt, 0, p->name, p)) {
+			printk(KERN_WARNING PPIP32 "%s: irq %d in use, "
 			       "resorting to polled operation\n",
-			       p->name, p->irq);
-			p->irq = PARPORT_IRQ_NONE;
-/*			p->dma = PARPORT_DMA_NONE;	FIXME - Really? */
-			priv->dcr_writable &= ~DCR_IRQ;
+			       p->name, irq);
 		} else {
+			p->irq = irq;
 			priv->dcr_writable |= DCR_IRQ;
 		}
 	}
 
-	/* FIXME - Allocate DMA resources here if use_dma. */
+	if ((features & PARPORT_IP32_ENABLE_DMA)
+	    && p->irq != PARPORT_IRQ_NONE) {
+		/* FIXME - Allocate DMA resources here. */
+	}
+
+	if ((features & PARPORT_IP32_ENABLE_SPP) && fifo_supported) {
+		/* Enable compatibility FIFO mode */
+		p->ops->compat_write_data = parport_ip32_compat_write_data;
+		p->modes |= PARPORT_MODE_COMPAT;
+		pr_probe(p,"Hardware support for SPP mode enabled\n");
+	}
+#if 0				/* FIXME - not implemented */
+	if (features & PARPORT_IP32_ENABLE_EPP) {
+		/* Set up access functions to use EPP hardware. */
+		p->ops->epp_read_data = parport_ip32_epp_read_data;
+		p->ops->epp_write_data = parport_ip32_epp_write_data;
+		p->ops->epp_read_addr = parport_ip32_epp_read_addr;
+		p->ops->epp_write_addr = parport_ip32_epp_write_addr;
+		p->modes |= PARPORT_MODE_EPP;
+		pr_probe(p, "Hardware support for EPP mode enabled\n");
+	}
+#endif
+#if 0				/* FIXME - not implemented */
+	if ((features & PARPORT_IP32_ENABLE_ECP) && fifo_supported) {
+		/* Enable ECP FIFO mode */
+		p->ops->ecp_write_data = parport_ip32_ecp_write_data;
+		p->ops->ecp_read_data  = parport_ip32_ecp_read_data;
+		p->ops->ecp_write_addr = parport_ip32_ecp_write_addr;
+		p->modes |= PARPORT_MODE_ECP;
+		pr_probe(p, "Hardware support for ECP mode enabled\n");
+	}
+#endif
 
 	/* Initialize the port with sensible values */
-	if (priv->ecr_present) {
-		parport_ip32_write_econtrol(p, priv->ecr_init);
-	}
-	parport_ip32_write_control(p, priv->dcr_init);
+	parport_ip32_set_mode(p, ECR_MODE_PS2);
+	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
 	parport_ip32_data_forward(p);
 	parport_ip32_disable_irq(p);
 	parport_ip32_write_data(p, 0x00);
 
-	parport_ip32_dump_state(p, "end init", 0);
+	parport_ip32_dump_state (p, "end init", 0);
 
 	/* Print what we found */
-	printk(KERN_INFO "%s: SGI IP32 at 0x%lx", p->name, p->base);
-	if (p->base_hi) {
-		printk(" (0x%lx)", p->base_hi);
-	}
+	printk(KERN_INFO "%s: SGI IP32 at 0x%lx (0x%lx)",
+	       p->name, p->base, p->base_hi);
 	if (p->irq != PARPORT_IRQ_NONE) {
 		printk(", irq %d", p->irq);
 	}
@@ -2019,20 +1774,16 @@ struct parport *parport_ip32_probe_port(unsigned long base,
 #undef printmode
 	printk("]\n");
 
-	/* Now that we've told the sharing engine about the port, and found
-	 * out its characteristics, let the high-level drivers know about
-	 * it. */
 	parport_announce_port(p);
-
 	return p;
 
-error:
+fail:
 	if (p) {
 		parport_put_port(p);
 	}
 	kfree(priv);
 	kfree(ops);
-	return NULL;
+	return ERR_PTR(err);
 }
 
 /**
@@ -2066,29 +1817,15 @@ static __exit void parport_ip32_unregister_port(struct parport *p)
  */
 static int __init parport_ip32_init(void)
 {
-	struct parport_ip32_regs regs;
-	unsigned int modes;
-
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.2.2pre\n");
-	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
-
-	parport_ip32_make_isa_registers(&regs,
-					&mace->isa.parallel,
-					&mace->isa.ecp1284,
-					8 /* regshift */);
-	modes = PARPORT_MODE_EPP | PARPORT_MODE_ECP;
-#define physaddr(memb) (MACE_BASE + offsetof(struct sgi_mace, memb))
-	this_port = parport_ip32_probe_port(physaddr(isa.parallel),
-					    physaddr(isa.ecp1284),
-					    MACEISA_PARALLEL_IRQ,
-					    PARPORT_DMA_NONE,
-					    &regs, modes);
-#undef physaddr
-	if (this_port == NULL) {
-		printk(KERN_DEBUG PPIP32 "failed to probe port\n");
-		return -ENODEV;
+	if (verbose_probing) {
+		printk(KERN_INFO PPIP32
+		       "SGI IP32 built-in parallel port driver v0.2.2\n");
+		pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	}
-
+	this_port = parport_ip32_probe_port();
+	if (IS_ERR(this_port)) {
+		return PTR_ERR(this_port);
+	}
 	return 0;
 }
 
@@ -2105,22 +1842,23 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.2.2pre");	/* update in parport_ip32_init() too */
+MODULE_VERSION("0.2.2");	/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
 
-module_param_named(verbose_probing, param_verbose_probing, bool, S_IRUGO);
+module_param(verbose_probing, bool, S_IRUGO);
 MODULE_PARM_DESC(verbose_probing, "Log chit-chat during initialization");
 
-module_param(use_irq, bool, S_IRUGO);
-MODULE_PARM_DESC(use_irq, "Use IRQ if available");
+module_param(features, uint, S_IRUGO);
+MODULE_PARM_DESC(features,
+		 "Bit mask of features to enable"
+		 ", bit 0: IRQ support"
+		 ", bit 1: DMA support"
+		 ", bit 2: hardware SPP mode"
+		 ", bit 3: hardware EPP mode"
+		 ", bit 4: hardware ECP mode");
 
-module_param(use_dma, bool, S_IRUGO);
-MODULE_PARM_DESC(use_dma, "Use DMA if available");
-
-module_param(use_fifo, bool, S_IRUGO|S_IWUSR);
-MODULE_PARM_DESC(use_fifo, "Use hardware FIFO modes if available");
 
 /*--- Inform (X)Emacs about preferred coding style ---------------------*/
 /*
