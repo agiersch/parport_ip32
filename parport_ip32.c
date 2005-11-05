@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.44 2005-11-05 16:26:23 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.45 2005-11-05 16:34:20 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -1417,7 +1417,7 @@ static __initdata struct parport_operations parport_ip32_ops = {
 
 /**
  * parport_ip32_ecp_supported - check for an ECP port
- * @regs: pointer to a  &parport_ip32_regs structure
+ * @p:	pointer to the &parport structure
  *
  * Returns 1 if an ECP port is found, and 0 otherwise.  This function actually
  * checks if an Extended Control Register seems to be present.  On successful
@@ -1427,36 +1427,40 @@ static __initdata struct parport_operations parport_ip32_ops = {
  * of ECR aren't writable, so we check by writing ECR and reading it back to
  * see if it's what we expect.
  */
-static __init unsigned int
-parport_ip32_ecp_supported(const struct parport_ip32_regs *regs)
+static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 {
+	struct parport_ip32_private * const priv = PRIV(p);
 	unsigned int dcr, ecr, mask;
 
-	parport_ip32_out(DCR_SELECT | DCR_nINIT, regs->dcr);
-	dcr = parport_ip32_in(regs->dcr);
+	parport_ip32_out(DCR_SELECT | DCR_nINIT, priv->regs.dcr);
+	dcr = parport_ip32_in(priv->regs.dcr);
 	mask = ECR_F_FULL | ECR_F_EMPTY;
-	if ((parport_ip32_in(regs->ecr) & mask) == (dcr & mask)) {
+	if ((parport_ip32_in(priv->regs.ecr) & mask) == (dcr & mask)) {
 		/* Toggle bit ECR_F_FULL */
 		mask = ECR_F_FULL;
-		parport_ip32_out(dcr ^ mask, regs->dcr);
-		dcr = parport_ip32_in(regs->dcr);
-		if ((parport_ip32_in(regs->ecr) & mask) == (dcr & mask))
-			return 0; /* Sure that no ECR register exists */
+		parport_ip32_out(dcr ^ mask, priv->regs.dcr);
+		dcr = parport_ip32_in(priv->regs.dcr);
+		if ((parport_ip32_in(priv->regs.ecr) & mask) == (dcr & mask))
+			goto fail; /* Sure that no ECR register exists */
 	}
 
-	ecr = parport_ip32_in(regs->ecr) & (ECR_F_FULL | ECR_F_EMPTY);
+	ecr = parport_ip32_in(priv->regs.ecr) & (ECR_F_FULL | ECR_F_EMPTY);
 	if (ecr != ECR_F_EMPTY)
-		return 0;
+		goto fail;
 
 	ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
-	parport_ip32_out(ecr, regs->ecr);
-	if (parport_ip32_in(regs->ecr) != (ecr | ECR_F_EMPTY))
-		return 0;
+	parport_ip32_out(ecr, priv->regs.ecr);
+	if (parport_ip32_in(priv->regs.ecr) != (ecr | ECR_F_EMPTY))
+		goto fail;
 
-	ecr = ECR_MODE_SPP | ECR_nERRINTR | ECR_SERVINTR;
-	parport_ip32_out(ecr, regs->ecr);
-	parport_ip32_out(DCR_SELECT | DCR_nINIT, regs->dcr);
+	pr_probe(p, "Found working ECR register\n");
+	parport_ip32_set_mode(p, ECR_MODE_SPP);
+	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
 	return 1;
+
+fail:
+	pr_probe(p, "ECR register not found\n");
+	return 0;
 }
 
 /**
@@ -1661,11 +1665,6 @@ static __init struct parport *parport_ip32_probe_port(void)
 	parport_ip32_make_isa_registers(&regs, &mace->isa.parallel,
 					&mace->isa.ecp1284, 8 /* regshift */);
 
-	if (!parport_ip32_ecp_supported(&regs)) {
-		err = -ENODEV;
-		goto fail;
-	}
-
 	ops = kmalloc(sizeof(struct parport_operations), GFP_KERNEL);
 	priv = kmalloc(sizeof(struct parport_ip32_private), GFP_KERNEL);
 	p = parport_register_port(0, PARPORT_IRQ_NONE, PARPORT_DMA_NONE, ops);
@@ -1685,13 +1684,17 @@ static __init struct parport *parport_ip32_probe_port(void)
 		.irq_mode		= PARPORT_IP32_IRQ_FWD,
 	};
 
+	/* Probe port. */
+	if (!parport_ip32_ecp_supported(p)) {
+		err = -ENODEV;
+		goto fail;
+	}
+	fifo_supported = parport_ip32_fifo_supported(p);
+
 	/* We found what looks like a working ECR register.  Simply assume
 	 * that all modes are correctly supported.  Enable basic modes.*/
-	pr_probe(p, "Found working ECR register\n");
 	p->modes = PARPORT_MODE_PCSPP | PARPORT_MODE_SAFEININT;
 	p->modes |= PARPORT_MODE_TRISTATE;
-
-	fifo_supported = parport_ip32_fifo_supported(p);
 
 	/* Request IRQ */
 	if (features & PARPORT_IP32_ENABLE_IRQ) {
