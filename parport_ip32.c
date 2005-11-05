@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.43 2005-11-05 15:23:32 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.44 2005-11-05 16:26:23 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -1417,50 +1417,46 @@ static __initdata struct parport_operations parport_ip32_ops = {
 
 /**
  * parport_ip32_ecp_supported - check for an ECP port
- * @p: pointer to the &parport structure
+ * @regs: pointer to a  &parport_ip32_regs structure
  *
  * Returns 1 if an ECP port is found, and 0 otherwise.  This function actually
- * checks if an Extended Control Register seems to be present.  On return, the
- * port is placed in SPP mode.
+ * checks if an Extended Control Register seems to be present.  On successful
+ * return, the port is placed in SPP mode.
  *
  * We first check to see if ECR is the same as DCR.  If not, the low two bits
  * of ECR aren't writable, so we check by writing ECR and reading it back to
  * see if it's what we expect.
  */
-static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
+static __init unsigned int
+parport_ip32_ecp_supported(const struct parport_ip32_regs *regs)
 {
-	struct parport_ip32_private * const priv = PRIV(p);
 	unsigned int dcr, ecr, mask;
 
-	parport_ip32_out(DCR_SELECT | DCR_nINIT, priv->regs.dcr);
-	dcr = parport_ip32_in(priv->regs.dcr);
+	parport_ip32_out(DCR_SELECT | DCR_nINIT, regs->dcr);
+	dcr = parport_ip32_in(regs->dcr);
 	mask = ECR_F_FULL | ECR_F_EMPTY;
-	if ((parport_ip32_in(priv->regs.ecr) & mask) == (dcr & mask)) {
+	if ((parport_ip32_in(regs->ecr) & mask) == (dcr & mask)) {
 		/* Toggle bit ECR_F_FULL */
 		mask = ECR_F_FULL;
-		parport_ip32_out(dcr ^ mask, priv->regs.dcr);
-		dcr = parport_ip32_in(priv->regs.dcr);
-		if ((parport_ip32_in(priv->regs.ecr) & mask) == (dcr & mask))
-			goto fail; /* Sure that no ECR register exists */
+		parport_ip32_out(dcr ^ mask, regs->dcr);
+		dcr = parport_ip32_in(regs->dcr);
+		if ((parport_ip32_in(regs->ecr) & mask) == (dcr & mask))
+			return 0; /* Sure that no ECR register exists */
 	}
 
-	ecr = parport_ip32_in(priv->regs.ecr) & (ECR_F_FULL | ECR_F_EMPTY);
+	ecr = parport_ip32_in(regs->ecr) & (ECR_F_FULL | ECR_F_EMPTY);
 	if (ecr != ECR_F_EMPTY)
-		goto fail;
+		return 0;
 
 	ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
-	parport_ip32_out(ecr, priv->regs.ecr);
-	if (parport_ip32_in(priv->regs.ecr) != (ecr | ECR_F_EMPTY))
-		goto fail;
+	parport_ip32_out(ecr, regs->ecr);
+	if (parport_ip32_in(regs->ecr) != (ecr | ECR_F_EMPTY))
+		return 0;
 
-	pr_probe(p, "Found working ECR register\n");
-	parport_ip32_set_mode(p, ECR_MODE_SPP);
-	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
+	ecr = ECR_MODE_SPP | ECR_nERRINTR | ECR_SERVINTR;
+	parport_ip32_out(ecr, regs->ecr);
+	parport_ip32_out(DCR_SELECT | DCR_nINIT, regs->dcr);
 	return 1;
-
-fail:
-	pr_probe(p, "ECR register not found\n");
-	return 0;
 }
 
 /**
@@ -1665,6 +1661,11 @@ static __init struct parport *parport_ip32_probe_port(void)
 	parport_ip32_make_isa_registers(&regs, &mace->isa.parallel,
 					&mace->isa.ecp1284, 8 /* regshift */);
 
+	if (!parport_ip32_ecp_supported(&regs)) {
+		err = -ENODEV;
+		goto fail;
+	}
+
 	ops = kmalloc(sizeof(struct parport_operations), GFP_KERNEL);
 	priv = kmalloc(sizeof(struct parport_ip32_private), GFP_KERNEL);
 	p = parport_register_port(0, PARPORT_IRQ_NONE, PARPORT_DMA_NONE, ops);
@@ -1684,16 +1685,13 @@ static __init struct parport *parport_ip32_probe_port(void)
 		.irq_mode		= PARPORT_IP32_IRQ_FWD,
 	};
 
-	if (!parport_ip32_ecp_supported(p)) {
-		err = -ENODEV;
-		goto fail;
-	}
-	fifo_supported = parport_ip32_fifo_supported(p);
-
 	/* We found what looks like a working ECR register.  Simply assume
 	 * that all modes are correctly supported.  Enable basic modes.*/
+	pr_probe(p, "Found working ECR register\n");
 	p->modes = PARPORT_MODE_PCSPP | PARPORT_MODE_SAFEININT;
 	p->modes |= PARPORT_MODE_TRISTATE;
+
+	fifo_supported = parport_ip32_fifo_supported(p);
 
 	/* Request IRQ */
 	if (features & PARPORT_IP32_ENABLE_IRQ) {
@@ -1708,8 +1706,10 @@ static __init struct parport *parport_ip32_probe_port(void)
 		}
 	}
 
+	/* DMA cannot work without interrupts.  Furthermore, it is not needed
+	 * if FIFO is not supported.  */
 	if ((features & PARPORT_IP32_ENABLE_DMA)
-	    && p->irq != PARPORT_IRQ_NONE) {
+	    && p->irq != PARPORT_IRQ_NONE && fifo_supported) {
 		/* FIXME - Allocate DMA resources here. */
 	}
 
@@ -1719,7 +1719,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 		p->modes |= PARPORT_MODE_COMPAT;
 		pr_probe(p,"Hardware support for SPP mode enabled\n");
 	}
-#if 0				/* FIXME - not implemented */
+#if 0		/* FIXME - parport_ip32_epp_* not implemented */
 	if (features & PARPORT_IP32_ENABLE_EPP) {
 		/* Set up access functions to use EPP hardware. */
 		p->ops->epp_read_data = parport_ip32_epp_read_data;
@@ -1730,7 +1730,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 		pr_probe(p, "Hardware support for EPP mode enabled\n");
 	}
 #endif
-#if 0				/* FIXME - not implemented */
+#if 0		/* FIXME - parport_ip32_ecp_* not implemented */
 	if ((features & PARPORT_IP32_ENABLE_ECP) && fifo_supported) {
 		/* Enable ECP FIFO mode */
 		p->ops->ecp_write_data = parport_ip32_ecp_write_data;
@@ -1819,7 +1819,7 @@ static int __init parport_ip32_init(void)
 {
 	if (verbose_probing) {
 		printk(KERN_INFO PPIP32
-		       "SGI IP32 built-in parallel port driver v0.2.2\n");
+		       "SGI IP32 built-in parallel port driver v0.3pre\n");
 		pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	}
 	this_port = parport_ip32_probe_port();
@@ -1842,7 +1842,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.2.2");	/* update in parport_ip32_init() too */
+MODULE_VERSION("0.3pre");	/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
