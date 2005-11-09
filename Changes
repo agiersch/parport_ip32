@@ -1,5 +1,7 @@
 v0.3 -- ...
 
+	* Added DMA support.
+	* Finally remove macro PRIV().
 	* Remove redefinition of macro BIT() as it may introduce bugs.
 
 v0.2.2 -- Sat, 05 Nov 2005 16:22:21 +0100
