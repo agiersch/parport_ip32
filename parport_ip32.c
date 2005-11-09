@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.48 2005-11-09 21:18:00 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.49 2005-11-09 21:24:27 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -74,7 +74,7 @@
 #	warning DEBUG_PARPORT_IP32 == 2
 #elif DEBUG_PARPORT_IP32 >= 3
 #	warning DEBUG_PARPORT_IP32 >= 3
-#	ifndef DEBUG
+#	if !defined(DEBUG)
 #		define DEBUG /* enable pr_debug() in kernel.h */
 #	endif
 #endif
