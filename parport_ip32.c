@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.52 2005-11-11 00:38:35 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.53 2005-11-11 13:11:05 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -577,7 +577,7 @@ static irqreturn_t parport_ip32_dma_interrupt(int irq, void *dev_id,
 static irqreturn_t parport_ip32_merr_interrupt(int irq, void *dev_id,
 					       struct pt_regs *regs)
 {
-	pr_trace(NULL, "(%d)", irq);
+	pr_trace1(NULL, "(%d)", irq);
 	return IRQ_HANDLED;
 }
 #endif
@@ -1163,9 +1163,11 @@ static inline unsigned int parport_ip32_fifo_wait_break(struct parport *p,
  * parport_ip32_fwp_wait_polling - wait for FIFO to empty (polling)
  * @p:		pointer to &struct parport
  *
- * Used by parport_ip32_fifo_write_pio_wait().
+ * Returns the number of bytes that can safely be written in the FIFO.  A
+ * return value of zero means that the calling function should terminate as
+ * fast as possible.
  */
-static unsigned int parport_ip32_fwp_wait_polling(struct parport *p)
+static inline unsigned int parport_ip32_fwp_wait_polling(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
@@ -1201,9 +1203,11 @@ static unsigned int parport_ip32_fwp_wait_polling(struct parport *p)
  * parport_ip32_fwp_wait_interrupt - wait for FIFO to empty (interrupt-driven)
  * @p:		pointer to &struct parport
  *
- * Used by parport_ip32_fifo_write_pio_wait().
+ * Returns the number of bytes that can safely be written in the FIFO.  A
+ * return value of zero means that the calling function should terminate as
+ * fast as possible.
  */
-static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
+static inline unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
 {
 	static unsigned int lost_interrupt = 0;
 	struct parport_ip32_private * const priv = p->physport->private_data;
@@ -1271,32 +1275,6 @@ static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
 }
 
 /**
- * parport_ip32_fifo_write_pio_wait - wait until FIFO empties a bit
- * @p:		pointer to &struct parport
- *
- * Returns the number of bytes that can safely be written in the FIFO.  A
- * return value of zero means that the calling function should terminate as
- * fast as possible.  If an error is returned (value less than zero), the FIFO
- * must be reset.
- *
- * Actually, parport_ip32_fifo_write_wait() uses one of the two lower level
- * function: parport_ip32_fwp_wait_polling() which waits by using an active
- * polling loop, and parport_ip32_fwp_wait_interrupt() which uses the help of
- * interrupts.
- */
-static inline unsigned int
-parport_ip32_fifo_write_pio_wait(struct parport *p)
-{
-	unsigned int r;
-	if (p->irq == PARPORT_IRQ_NONE) {
-		r = parport_ip32_fwp_wait_polling(p);
-	} else {
-		r = parport_ip32_fwp_wait_interrupt(p);
-	}
-	return r;
-}
-
-/**
  * parport_ip32_fifo_write_block_pio - write a block of data (PIO mode)
  * @p:		pointer to &struct parport
  * @buf:	buffer of data to write
@@ -1314,12 +1292,12 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 	const u8 *bufp = buf;
 	size_t left = len;
 
-	parport_ip32_dump_state(p, "begin fifo_write_block_pio", 0);
-
 	while (left > 0) {
 		unsigned int count;
 
-		count = parport_ip32_fifo_write_pio_wait(p);
+		count = (p->irq == PARPORT_IRQ_NONE)?
+			parport_ip32_fwp_wait_polling(p):
+			parport_ip32_fwp_wait_interrupt(p);
 		if (count == 0) {
 			/* Transmission should be stopped */
 			break;
@@ -1327,10 +1305,6 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 		if (count > left) {
 			count = left;
 		}
-
-		pr_debug(PPIP32 "%s: .. push %lu byte%s\n", p->name,
-			 (unsigned long)count, (count > 1)? "s": "");
-
 		if (count == 1) {
 			parport_ip32_out(*bufp, priv->regs.fifo);
 			bufp++, left--;
@@ -1339,12 +1313,6 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 			bufp += count, left -= count;
 		}
 	}
-
-	pr_debug(PPIP32 "%s: .. transfer %s (left=%lu)\n", p->name,
-		 left? "aborted": "completed", (unsigned long)left);
-
-	parport_ip32_dump_state(p, "end fifo_write_block_pio", 0);
-
 	return (len - left);
 }
 
@@ -1625,8 +1593,6 @@ static size_t parport_ip32_fifo_write_block(struct parport *p,
 	}
 	ready_before = 1;
 
-	pr_trace(p, " -> len=%lu", (unsigned long)len);
-
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 	priv->irq_mode = PARPORT_IP32_IRQ_HERE;
 
@@ -1646,7 +1612,6 @@ static size_t parport_ip32_fifo_write_block(struct parport *p,
 	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
 	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
 
-	pr_trace(p, " <- written=%lu", (unsigned long)written);
 	return written;
 }
 
@@ -1991,6 +1956,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 		err = -ENODEV;
 		goto fail;
 	}
+	parport_ip32_dump_state (p, "begin init", 0);
 
 	/* We found what looks like a working ECR register.  Simply assume
 	 * that all modes are correctly supported.  Enable basic modes. */
@@ -2068,7 +2034,6 @@ static __init struct parport *parport_ip32_probe_port(void)
 	parport_ip32_data_forward(p);
 	parport_ip32_disable_irq(p);
 	parport_ip32_write_data(p, 0x00);
-
 	parport_ip32_dump_state (p, "end init", 0);
 
 	/* Print out what we found */
