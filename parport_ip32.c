@@ -2,11 +2,13 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.54 2005-11-11 19:12:21 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.55 2005-11-11 21:26:17 arnaud Exp $
  *
- * based on parport_pc.c by
+ * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
  *	Andrea Arcangeli, et al.
+ *
+ * Thanks to Ilya A. Voylnets-Evenbakh for his help.
  *
  * Copyright (C) 2005 Arnaud Giersch.
  *
@@ -29,17 +31,17 @@
  *
  *	Basic SPP and PS2 modes are supported.
  *	Support for parallel port IRQ is present.
- *	Hardware compatibility mode (with FIFO) is supported.
- *	FIFO can be driven in PIO or DMA mode.  PIO mode can work with or
- *	without interrupt support.
+ *	Hardware SPP (a.k.a. compatibility), and EPP modes are supported.
+ *	SPP/ECP FIFO can be driven in PIO or DMA mode.  PIO mode can work with
+ *	or without interrupt support.
  *
- *	Hardware EPP and ECP modes are not implemented.  I currently do not
- *	own any peripheral supporting these extended modes, and cannot test
- *	them.
+ *	Hardware ECP modes is not implemented.  
  *
  * TODO:
  *
- *	Implement EPP and ECP modes.
+ *	Implement ECP mode.
+ *	EPP mode needs to be tested.  I currently do not own any peripheral
+ *	supporting this extended mode, and cannot test it.
  *	If DMA mode works well, decide if support for PIO FIFO modes should be
  *	dropped.
  */
@@ -292,6 +294,19 @@ static inline void parport_ip32_out(u8 val, void __iomem *addr)
 {
 	writeb(val, addr);
 	wmb();
+}
+
+/**
+ * parport_ip32_in_rep - read multiple values from a register
+ * @addr:	address of register
+ * @buf:	buffer to store read values
+ * @count:	number of bytes to read
+ */
+static inline void parport_ip32_in_rep(void __iomem *addr,
+				       void *buf, unsigned long count)
+{
+	readsb(addr, buf, count);
+	rmb();
 }
 
 /**
@@ -1087,7 +1102,6 @@ static inline void parport_ip32_restore_state(struct parport *p,
 
 /*--- EPP mode functions -----------------------------------------------*/
 
-#if 0				/* FIXME - not used yet */
 /**
  * parport_ip32_clear_epp_timeout - clear Timeout bit in EPP mode
  * @p:		pointer to &struct parport
@@ -1118,11 +1132,123 @@ static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 	pr_trace(p, "(): %s", cleared? "cleared": "failed");
 	return cleared;
 }
-#endif
 
-/*
- * FIXME - Insert here parport_ip32_epp_{read,write}_{data,address}().
+/**
+ * parport_ip32_epp_read - generic EPP read function
+ * @eppreg:	I/O register to read from
+ * @p:		pointer to &struct parport
+ * @buf:	buffer to store read data
+ * @len:	length of buffer @buf
+ * @flags:	may be PARPORT_EPP_FAST
  */
+static inline size_t parport_ip32_epp_read(void __iomem *eppreg,
+					   struct parport *p, void *buf,
+					   size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	size_t got;
+	parport_ip32_set_mode(p, ECR_MODE_EPP);
+	parport_ip32_data_reverse(p);
+	parport_ip32_write_control(p, DCR_nINIT);
+	if ((flags & PARPORT_EPP_FAST) && (len > 1)) {
+		parport_ip32_in_rep(eppreg, buf, len);
+		if (parport_ip32_in(priv->regs.dsr) & DSR_TIMEOUT) {
+			parport_ip32_clear_epp_timeout(p);
+			return -EIO;
+		}
+		got = len;
+	} else {
+		u8 *bufp = buf;
+		for (got = 0; got < len; got++) {
+			*bufp++ = parport_ip32_in(eppreg);
+			if (parport_ip32_in(priv->regs.dsr) & DSR_TIMEOUT) {
+				parport_ip32_clear_epp_timeout(p);
+				break;
+			}
+		}
+	}
+	parport_ip32_data_forward(p);
+	parport_ip32_set_mode(p, ECR_MODE_PS2);
+	return got;
+}
+
+/**
+ * parport_ip32_epp_write - generic EPP write function
+ * @eppreg:	I/O register to write to
+ * @p:		pointer to &struct parport
+ * @buf:	buffer of data to write
+ * @len:	length of buffer @buf
+ * @flags:	may be PARPORT_EPP_FAST
+ */
+static inline size_t parport_ip32_epp_write(void __iomem *eppreg,
+					    struct parport *p, const void *buf,
+					    size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	size_t written;
+	parport_ip32_set_mode(p, ECR_MODE_EPP);
+	parport_ip32_data_forward(p);
+	parport_ip32_write_control(p, DCR_nINIT);
+	if ((flags & PARPORT_EPP_FAST) && (len > 1)) {
+		parport_ip32_out_rep(eppreg, buf, len);
+		if (parport_ip32_in(priv->regs.dsr) & DSR_TIMEOUT) {
+			parport_ip32_clear_epp_timeout(p);
+			return -EIO;
+		}
+		written = len;
+	} else {
+		const u8 *bufp = buf;
+		for (written = 0; written < len; written++) {
+			parport_ip32_out(*bufp++, eppreg);
+			if (parport_ip32_in(priv->regs.dsr) & DSR_TIMEOUT) {
+				parport_ip32_clear_epp_timeout(p);
+				break;
+			}
+		}
+	}
+	parport_ip32_set_mode(p, ECR_MODE_PS2);
+	return written;
+}
+
+/**
+ * parport_ip32_epp_read_data - read a block of data in EPP mode
+ */
+static size_t parport_ip32_epp_read_data(struct parport *p, void *buf,
+					 size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	return parport_ip32_epp_read(priv->regs.eppData0, p, buf, len, flags);
+}
+
+/**
+ * parport_ip32_epp_write_data - write a block of data in EPP mode
+ */
+static size_t parport_ip32_epp_write_data(struct parport *p, const void *buf,
+					  size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	return parport_ip32_epp_write(priv->regs.eppData0, p, buf, len, flags);
+}
+
+/**
+ * parport_ip32_epp_read_addr - read a block of addresses in EPP mode
+ */
+static size_t parport_ip32_epp_read_addr(struct parport *p, void *buf,
+					 size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	return parport_ip32_epp_read(priv->regs.eppAddr, p, buf, len, flags);
+}
+
+/**
+ * parport_ip32_epp_write_addr - write a block of addresses in EPP mode
+ */
+static size_t parport_ip32_epp_write_addr(struct parport *p, const void *buf,
+					  size_t len, int flags)
+{
+	struct parport_ip32_private * const priv = p->physport->private_data;
+	return parport_ip32_epp_write(priv->regs.eppAddr, p, buf, len, flags);
+}
 
 /*--- ECP mode functions (FIFO) ----------------------------------------*/
 
@@ -2007,7 +2133,6 @@ static __init struct parport *parport_ip32_probe_port(void)
 		p->modes |= PARPORT_MODE_COMPAT;
 		pr_probe(p, "Hardware support for SPP mode enabled\n");
 	}
-#if 0		/* FIXME - parport_ip32_epp_* not implemented */
 	if (features & PARPORT_IP32_ENABLE_EPP) {
 		/* Set up access functions to use EPP hardware. */
 		p->ops->epp_read_data = parport_ip32_epp_read_data;
@@ -2017,7 +2142,6 @@ static __init struct parport *parport_ip32_probe_port(void)
 		p->modes |= PARPORT_MODE_EPP;
 		pr_probe(p, "Hardware support for EPP mode enabled\n");
 	}
-#endif
 #if 0		/* FIXME - parport_ip32_ecp_* not implemented */
 	if (features & PARPORT_IP32_ENABLE_ECP) {
 		/* Enable ECP FIFO mode */
@@ -2116,7 +2240,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.3");		/* update in parport_ip32_init() too */
+MODULE_VERSION("0.4pre");		/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
@@ -2130,8 +2254,8 @@ MODULE_PARM_DESC(features,
 		 ", bit 0: IRQ support"
 		 ", bit 1: DMA support"
 		 ", bit 2: hardware SPP mode"
-/* FIXME - parport_ip32_{epp,ecp}_* not implemented */
-/*		 ", bit 3: hardware EPP mode" */
+		 ", bit 3: hardware EPP mode"
+/* FIXME - parport_ip32_ecp_* not implemented */
 /*		 ", bit 4: hardware ECP mode" */
 	);
 
