@@ -1,6 +1,6 @@
 v0.3 -- Fri, 11 Nov 2005 13:19:07 +0100
 
-	* Added DMA support.
+	* Add DMA support.
 	* Remove useless parport_ip32_fifo_write_pio_wait().
 	* Finally remove macro PRIV().
 	* Remove redefinition of macro BIT() as it may introduce bugs.
