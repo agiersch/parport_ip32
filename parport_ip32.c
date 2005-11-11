@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.57 2005-11-11 22:38:00 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.58 2005-11-11 22:44:15 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -1626,7 +1626,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p)
 		residue++;
 	}
 
-	/* Don't care about partial PWords until support is added for
+	/* Don't care about partial PWords since we do not support
 	 * PWord != 1 byte. */
 
 	/* Back to PS2 mode. */
@@ -1647,6 +1647,7 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 					     int flags)
 {
 	static unsigned int ready_before = 1;
+	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
 	size_t written;
 	int r;
@@ -1680,7 +1681,7 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 	}
 	ready_before = 1;
 
-	written = parport_ip32_fifo_write_block(p, buf, len, ECR_MODE_PPF);
+	written = parport_ip32_fifo_write_block(p, buf, len);
 
 	/* Wait FIFO to empty.  Timeout is proportional to FIFO_depth.  */
 	parport_ip32_drain_fifo(p, physport->cad->timeout * priv->fifo_depth);
