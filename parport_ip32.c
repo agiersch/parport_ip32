@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.50 2005-11-10 17:14:26 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.51 2005-11-11 00:34:50 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -40,7 +40,8 @@
  * TODO:
  *
  *	Implement EPP and ECP modes.
- *	Decide if support for PIO FIFO modes should be dropped.
+ *	If DMA mode works well, decide if support for PIO FIFO modes should be
+ *	dropped.
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
@@ -98,11 +99,11 @@
 #include <linux/module.h>
 #include <linux/parport.h>
 #include <linux/sched.h>
-#include <linux/spinlock.h>
 #include <linux/stddef.h>
 #include <linux/timer.h>
 #include <linux/types.h>
 #include <asm/io.h>
+#include <asm/semaphore.h>
 #include <asm/ip32/ip32_ints.h>
 #include <asm/ip32/mace.h>
 
@@ -476,10 +477,6 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 
 /*--- IP32 parallel port DMA operations --------------------------------*/
 
-/* FIXME - remove this! */
-/* #undef MACEPAR_CONTEXT_DATA_BOUND */
-/* #define MACEPAR_CONTEXT_DATA_BOUND	0x0000000000000100UL */
-
 /**
  * struct parport_ip32_dma_data - private data needed for DMA operation
  * @dir:	DMA direction (from or to device)
@@ -488,19 +485,20 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
  * @next:	address of next bytes to DMA transfer
  * @left:	number of bytes remaining
  * @ctx:	next context to write (0: context_a; 1: context_b)
- * @lock:	spinlock for parport_ip32_dma_setup_context()
- * @noirq:	spinlock use to ensure that IRQs are not disabled twice
+ * @lock:	mutex for parport_ip32_dma_setup_context()
+ * @noirq:	mutex used to ensure that IRQs are not disabled twice
  */
-static struct parport_ip32_dma_data {
+struct parport_ip32_dma_data {
 	enum dma_data_direction		dir;
 	dma_addr_t			buf;
 	dma_addr_t			next;
 	size_t				len;
 	size_t				left;
 	unsigned int			ctx;
-	spinlock_t			lock;
-	spinlock_t			noirq;
-} parport_ip32_dma;
+	struct semaphore		lock;
+	struct semaphore		noirq;
+};
+static struct parport_ip32_dma_data parport_ip32_dma;
 
 /**
  * parport_ip32_setup_context - setup next DMA context
@@ -511,32 +509,34 @@ static struct parport_ip32_dma_data {
  */
 static inline void parport_ip32_dma_setup_context(unsigned int limit)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(&parport_ip32_dma.lock, flags);
+	if (down_trylock(&parport_ip32_dma.lock)) {
+		/* Come back later please.  The MACE keeps sending interrupts
+		 * when a context is invalid, so there is no problem with this
+		 * early return. */
+		return;
+	}
 	if (parport_ip32_dma.left > 0) {
 		volatile u64 __iomem *ctxreg = (parport_ip32_dma.ctx == 0)?
 			&mace->perif.ctrl.parport.context_a:
 			&mace->perif.ctrl.parport.context_b;
-		u64 count, last;
+		u64 count;
 		u64 ctxval;
 		if (parport_ip32_dma.left <= limit) {
 			count = parport_ip32_dma.left;
-			last = MACEPAR_CONTEXT_LASTFLAG;
+			ctxval = MACEPAR_CONTEXT_LASTFLAG;
 		} else {
 			count = limit;
-			last = 0;
+			ctxval = 0;
 		}
 
-		pr_trace1(NULL,
-			  "(%u): 0x%04x:0x%04x, %u -> %u%s",
-			  limit,
-			  (unsigned int)parport_ip32_dma.buf,
-			  (unsigned int)parport_ip32_dma.next,
-			  (unsigned int)count,
-			  parport_ip32_dma.ctx, last? "*": "");
+		pr_trace(NULL,
+			 "(%u): 0x%04x:0x%04x, %u -> %u%s",
+			 limit,
+			 (unsigned int)parport_ip32_dma.buf,
+			 (unsigned int)parport_ip32_dma.next,
+			 (unsigned int)count,
+			 parport_ip32_dma.ctx, ctxval? "*": "");
 
-		ctxval = last;
 		ctxval |= parport_ip32_dma.next &
 			MACEPAR_CONTEXT_BASEADDR_MASK;
 		ctxval |= ((count - 1) << MACEPAR_CONTEXT_DATALEN_SHIFT) &
@@ -546,15 +546,19 @@ static inline void parport_ip32_dma_setup_context(unsigned int limit)
 		parport_ip32_dma.next += count;
 		parport_ip32_dma.left -= count;
 		parport_ip32_dma.ctx ^= 1U;
-
-		/* If there is nothing more to send, disable IRQs to avoid to
-		 * face an IRQ storm which can lock the machine. */
-		if (last && spin_trylock(parport_ip32_dma.noirq)) {
-			disable_irq_nosync(MACEISA_PAR_CTXA_IRQ);
-			disable_irq_nosync(MACEISA_PAR_CTXB_IRQ);
-		}
 	}
-	spin_unlock_irqrestore(&parport_ip32_dma.lock, flags);
+	/* If there is nothing more to send, disable IRQs to avoid to
+	 * face an IRQ storm which can lock the machine.  Disable them
+	 * only once. */
+	if (parport_ip32_dma.left == 0
+	    && !down_trylock(&parport_ip32_dma.noirq)) {
+		pr_debug(PPIP32 "IRQ off (ctx)\n");
+		disable_irq_nosync(MACEISA_PAR_CTXA_IRQ);
+		disable_irq_nosync(MACEISA_PAR_CTXB_IRQ);
+	}
+	/* Make sure that parport_ip32_dma is actually written */
+	barrier();
+	up(&parport_ip32_dma.lock);
 }
 
 /**
@@ -564,7 +568,7 @@ static irqreturn_t parport_ip32_dma_interrupt(int irq, void *dev_id,
 					      struct pt_regs *regs)
 {
 	if (parport_ip32_dma.left)
-		pr_trace1(NULL, "(%d): ctx=%d", irq, parport_ip32_dma.ctx);
+		pr_trace(NULL, "(%d): ctx=%d", irq, parport_ip32_dma.ctx);
 	parport_ip32_dma_setup_context(MACEPAR_CONTEXT_DATA_BOUND);
 	return IRQ_HANDLED;
 }
@@ -573,7 +577,7 @@ static irqreturn_t parport_ip32_dma_interrupt(int irq, void *dev_id,
 static irqreturn_t parport_ip32_merr_interrupt(int irq, void *dev_id,
 					       struct pt_regs *regs)
 {
-	pr_trace1(NULL, "(%d)", irq);
+	pr_trace(NULL, "(%d)", irq);
 	return IRQ_HANDLED;
 }
 #endif
@@ -593,7 +597,7 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	unsigned int limit;
 	u64 ctrl;
 
-	pr_trace1(NULL, "(%d, %lu)", dir, (unsigned long)count);
+	pr_trace(NULL, "(%d, %lu)", dir, (unsigned long)count);
 
 	/* FIXME - add support for DMA_FROM_DEVICE.  In this case, buffer must
 	 * be 64 bytes aligned. */
@@ -603,15 +607,16 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	ctrl = MACEPAR_CTLSTAT_RESET;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
 	wmb();
-	if (!spin_trylock(parport_ip32_dma.noirq)) {
+	if (down_trylock(&parport_ip32_dma.noirq)) {
 		/* Failing to acquire lock means that IRQs were actually
-		 * disabled.  This should not happen here.  Re-enable
+		 * disabled.  This should normally not happen.  Re-enable
 		 * interrupts anyway. */
 		printk(KERN_DEBUG PPIP32 "enabling DMA interrupts\n");
+		pr_debug(PPIP32 "IRQ on (start)\n");
 		enable_irq(MACEISA_PAR_CTXA_IRQ);
 		enable_irq(MACEISA_PAR_CTXB_IRQ);
 	}
-	spin_unlock(parport_ip32_dma.noirq);
+	up(&parport_ip32_dma.noirq);
 
 	/* Prepare DMA pointers */
 	parport_ip32_dma.dir = dir;
@@ -620,19 +625,21 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	parport_ip32_dma.next = parport_ip32_dma.buf;
 	parport_ip32_dma.left = parport_ip32_dma.len;
 	parport_ip32_dma.ctx = 0;
+	barrier();
 
-	/* Enable DMA channel */
+	/* Setup and enable DMA channel */
 	ctrl = (dir == DMA_TO_DEVICE)? 0: MACEPAR_CTLSTAT_DIRECTION;
 	ctrl |= MACEPAR_CTLSTAT_ENABLE;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
 	wmb();
 
-	/* Set up first two contexts (and start DMA transfer) */
+	/* Setup first two contexts (and start DMA transfer) */
 	/* Single transfer should not cross a 4K page boundary */
 	limit = MACEPAR_CONTEXT_DATA_BOUND -
 		(parport_ip32_dma.next & (MACEPAR_CONTEXT_DATA_BOUND - 1));
 	parport_ip32_dma_setup_context(limit);
 	parport_ip32_dma_setup_context(MACEPAR_CONTEXT_DATA_BOUND);
+
 	return 0;
 }
 
@@ -650,8 +657,11 @@ static void parport_ip32_dma_stop(void)
 	u64 diag;
 	size_t res[2];	/* {[0] = res_a, [1] = res_b} */
 
+	pr_trace(NULL, "()");
+
 	/* Disable IRQs */
-	if (spin_trylock(parport_ip32_dma.noirq)) {
+	if (!down_trylock(&parport_ip32_dma.noirq)) {
+		pr_debug(PPIP32 "IRQ off (stop)\n");
 		disable_irq_nosync(MACEISA_PAR_CTXA_IRQ);
 		disable_irq_nosync(MACEISA_PAR_CTXB_IRQ);
 	}
@@ -690,8 +700,10 @@ static void parport_ip32_dma_stop(void)
 	ctrl = MACEPAR_CTLSTAT_RESET;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
 	wmb();
+	pr_debug(PPIP32 "IRQ on (stop)\n");
 	enable_irq(MACEISA_PAR_CTXA_IRQ);
 	enable_irq(MACEISA_PAR_CTXB_IRQ);
+	up(&parport_ip32_dma.noirq);
 
 	dma_unmap_single(NULL, parport_ip32_dma.buf, parport_ip32_dma.len,
 			 parport_ip32_dma.dir);
@@ -717,8 +729,8 @@ static int parport_ip32_dma_register(void)
 	/* Reset DMA controller */
 	writeq(MACEPAR_CTLSTAT_RESET, &mace->perif.ctrl.parport.cntlstat);
 	wmb();
-	spin_lock_init(&parport_ip32_dma.lock);
-	spin_lock_init(&parport_ip32_dma.noirq);
+	init_MUTEX(&parport_ip32_dma.lock);
+	init_MUTEX(&parport_ip32_dma.noirq);
 
 	/* Request IRQs */
 	err = request_irq(MACEISA_PAR_CTXA_IRQ, parport_ip32_dma_interrupt,
@@ -1555,8 +1567,7 @@ static int parport_ip32_fifo_write_finalize(struct parport *p, int mode)
 	pr_trace(p, "(0x%02x)", mode);
 
 	/* Wait FIFO to empty.  Timeout is proportional to FIFO_depth.  */
-	parport_ip32_drain_fifo(p,
-				physport->cad->timeout * priv->fifo_depth);
+	parport_ip32_drain_fifo(p, physport->cad->timeout * priv->fifo_depth);
 
 	/* Check for a potential residue */
 	residue = parport_ip32_get_fifo_residue(p);
