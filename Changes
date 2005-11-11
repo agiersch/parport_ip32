@@ -1,4 +1,4 @@
-v0.3 -- ...
+v0.3 -- Fri, 11 Nov 2005 01:38:04 +0100
 
 	* Added DMA support.
 	* Finally remove macro PRIV().
