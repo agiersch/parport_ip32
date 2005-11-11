@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.56 2005-11-11 21:45:04 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.57 2005-11-11 22:38:00 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -35,7 +35,7 @@
  *	SPP/ECP FIFO can be driven in PIO or DMA mode.  PIO mode can work with
  *	or without interrupt support.
  *
- *	Hardware ECP modes is not implemented.  
+ *	Hardware ECP modes is not implemented.
  *
  * TODO:
  *
@@ -1419,6 +1419,8 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 	const u8 *bufp = buf;
 	size_t left = len;
 
+	priv->irq_mode = PARPORT_IP32_IRQ_HERE;
+
 	while (left > 0) {
 		unsigned int count;
 
@@ -1440,6 +1442,9 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 			bufp += count, left -= count;
 		}
 	}
+
+	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
+
 	return (len - left);
 }
 
@@ -1465,6 +1470,8 @@ static size_t parport_ip32_fifo_write_block_dma(struct parport *p,
 	size_t written;
 	unsigned int ecr;
 
+	priv->irq_mode = PARPORT_IP32_IRQ_HERE;
+
 	parport_ip32_dma_start(DMA_TO_DEVICE, (void *)buf, len);
 	INIT_COMPLETION(priv->irq_complete);
 	parport_ip32_frob_econtrol(p, ECR_DMAEN | ECR_SERVINTR, ECR_DMAEN);
@@ -1488,39 +1495,32 @@ static size_t parport_ip32_fifo_write_block_dma(struct parport *p,
 	parport_ip32_dma_stop();
 	written = len - parport_ip32_dma_get_residue();
 
+	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
+
 	return written;
 }
 
 /**
- * parport_ip32_fifo_write_initialize - initialize a forward FIFO transfer
+ * parport_ip32_fifo_write_block - write a block of data
  * @p:		pointer to &struct parport
- * @mode:	operation mode (ECR_MODE_PPF or ECR_MODE_ECP)
+ * @buf:	buffer of data to write
+ * @len:	length of buffer @buf
  *
- * This function resets the FIFO and sets appropriate operation mode.  It
- * returns 1 if the peripheral is ready, and 0 otherwise.
+ * Uses PIO or DMA to write the contents of the buffer @buf into the parallel
+ * p FIFO.  Returns the number of bytes that were actually written.
  */
-static unsigned int parport_ip32_fifo_write_initialize(struct parport *p,
-						       unsigned int mode)
+static size_t parport_ip32_fifo_write_block(struct parport *p,
+					    const void *buf, size_t len)
 {
-	unsigned int ready;
-
-	pr_trace(p, "(0x%02x)", mode);
-
-	/* Reset FIFO, go in forward mode, and disable ackIntEn */
-	parport_ip32_set_mode(p, ECR_MODE_PS2);
-	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
-	parport_ip32_data_forward(p);
-	parport_ip32_disable_irq(p);
-
-	/* Go in desired mode */
-	parport_ip32_set_mode(p, mode);
-
-	/* Wait for peripheral to become ready */
-	ready = !parport_wait_peripheral(p,
-					 DSR_nBUSY | DSR_nFAULT,
-					 DSR_nBUSY | DSR_nFAULT);
-
-	return ready;
+	size_t written = 0;
+	if (len) {
+		/* FIXME - Maybe some threshold value should be set for @len
+		 * under which we revert to PIO mode? */
+		written = (p->modes & PARPORT_MODE_DMA)?
+			parport_ip32_fifo_write_block_dma(p, buf, len):
+			parport_ip32_fifo_write_block_pio(p, buf, len);
+	}
+	return written;
 }
 
 /**
@@ -1537,8 +1537,6 @@ static unsigned int parport_ip32_drain_fifo(struct parport *p,
 	unsigned long expire = jiffies + timeout;
 	unsigned int polling_interval;
 	unsigned int counter;
-
-	pr_trace(p, "(%ums)", jiffies_to_msecs(timeout));
 
 	/* Busy wait for approx. 200us */
 	for (counter = 0; counter < 40; counter++) {
@@ -1585,9 +1583,6 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p)
 	 * always reliable.  For the moment, the problem is avoided in most
 	 * cases by testing for BUSY in parport_ip32_fifo_write_initialize().
 	 */
-
-	pr_trace(p, "()");
-
 	if (parport_ip32_read_econtrol(p) & ECR_F_EMPTY) {
 		residue = 0;
 	} else {
@@ -1614,7 +1609,6 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p)
 			parport_ip32_out(0x00, priv->regs.fifo);
 		}
 	}
-
 	if (residue) {
 		pr_debug1(PPIP32 "%s: %d PWord%s left in FIFO\n",
 			  p->name, residue,
@@ -1624,7 +1618,6 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p)
 	/* Now reset the FIFO, change to Config mode, and clean up */
 	parport_ip32_set_mode(p, ECR_MODE_CFG);
 	cnfga = parport_ip32_in(priv->regs.cnfgA);
-
 	if (!(cnfga & CNFGA_nBYTEINTRANS)) {
 		pr_debug1(PPIP32 "%s: cnfgA contains 0x%02x\n",
 			  p->name, cnfga);
@@ -1643,106 +1636,6 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p)
 }
 
 /**
- * parport_ip32_fifo_write_finalize - finalize a forward FIFO transfer
- * @p:		pointer to &struct parport
- * @mode:	operation mode (ECR_MODE_PPF or ECR_MODE_ECP)
- *
- * Finalize a forward FIFO transfer.  Returns 1 if FIFO is empty and the
- * status of BUSY is low.  Returns -residue otherwise, where residue is the
- * number of bytes remaining in the FIFO.  Note that zero can be returned in
- * case there is a BUSY timeout.
- */
-static int parport_ip32_fifo_write_finalize(struct parport *p, int mode)
-{
-	struct parport_ip32_private * const priv = p->physport->private_data;
-	struct parport * const physport = p->physport;
-	unsigned int ready;
-	unsigned int residue;
-
-	pr_trace(p, "(0x%02x)", mode);
-
-	/* Wait FIFO to empty.  Timeout is proportional to FIFO_depth.  */
-	parport_ip32_drain_fifo(p, physport->cad->timeout * priv->fifo_depth);
-
-	/* Check for a potential residue */
-	residue = parport_ip32_get_fifo_residue(p);
-
-	/* Then, wait for BUSY to get low. */
-	ready = !parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY);
-	if (!ready) {
-		printk(KERN_DEBUG PPIP32 "%s: BUSY timeout\n", p->name);
-	}
-
-	/* Reset FIFO */
-	parport_ip32_set_mode(p, ECR_MODE_PS2);
-
-	if (residue) {
-		return -residue;
-	} else {
-		return ready;
-	}
-}
-
-/**
- * parport_ip32_fifo_write_block - write a block of data
- * @p:		pointer to &struct parport
- * @buf:	buffer of data to write
- * @len:	length of buffer @buf
- * @mode:	operation mode (ECP_MODE_PPF or ECP_MODE_ECP)
- *
- * Uses PIO or DMA to write the contents of the buffer @buf into the parallel
- * p FIFO.  Returns the number of bytes that were actually written.
- * Parameter @mode defines the operation mode, compatibility (ECR_MODE_PPF) or
- * ECP (ECR_MODE_ECP).
- */
-static size_t parport_ip32_fifo_write_block(struct parport *p,
-					    const void *buf, size_t len,
-					    unsigned int mode)
-{
-	static unsigned int ready_before = 1;
-	struct parport_ip32_private * const priv = p->physport->private_data;
-	struct parport * const physport = p->physport;
-	size_t written;
-	int r;
-
-	if (len == 0) {
-		/* There is nothing to do */
-		return 0;
-	}
-	if (!parport_ip32_fifo_write_initialize(p, mode)) {
-		/* Avoid to flood the logs */
-		if (ready_before) {
-			printk(KERN_INFO PPIP32 "%s: not ready\n",
-			       p->name);
-		}
-		ready_before = 0;
-		return 0;
-	}
-	ready_before = 1;
-
-	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
-	priv->irq_mode = PARPORT_IP32_IRQ_HERE;
-
-	/* FIXME - Maybe some threshold value should be set for @len under
-	 * which we revert to PIO mode?
-	 */
-	written = (p->modes & PARPORT_MODE_DMA)?
-		parport_ip32_fifo_write_block_dma(p, buf, len):
-		parport_ip32_fifo_write_block_pio(p, buf, len);
-
-	/* Finalize the transfer */
-	r = parport_ip32_fifo_write_finalize(p, mode);
-	if (r < 0) {
-		written += r;
-	}
-
-	priv->irq_mode = PARPORT_IP32_IRQ_FWD;
-	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
-
-	return written;
-}
-
-/**
  * parport_ip32_compat_write_data - write a block of data in compatibility mode
  * @p:		pointer to &struct parport
  * @buf:	buffer of data to write
@@ -1753,13 +1646,58 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 					     const void *buf, size_t len,
 					     int flags)
 {
+	static unsigned int ready_before = 1;
 	struct parport * const physport = p->physport;
 	size_t written;
+	int r;
+
 	/* Special case: a timeout of zero means we cannot call schedule().
 	 * Also if O_NONBLOCK is set then use the default implementation. */
-	written = (physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK)?
-		parport_ieee1284_write_compat(p, buf, len, flags):
-		parport_ip32_fifo_write_block(p, buf, len, ECR_MODE_PPF);
+	if (physport->cad->timeout <= PARPORT_INACTIVITY_O_NONBLOCK) {
+		return parport_ieee1284_write_compat(p, buf, len, flags);
+	}
+
+	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
+
+	/* Reset FIFO, go in forward mode, and disable ackIntEn */
+	parport_ip32_set_mode(p, ECR_MODE_PS2);
+	parport_ip32_write_control(p, DCR_SELECT | DCR_nINIT);
+	parport_ip32_data_forward(p);
+	parport_ip32_disable_irq(p);
+	parport_ip32_set_mode(p, ECR_MODE_PPF);
+
+	/* Wait for peripheral to become ready */
+	if (parport_wait_peripheral(p,
+				    DSR_nBUSY | DSR_nFAULT,
+				    DSR_nBUSY | DSR_nFAULT)) {
+		/* Avoid to flood the logs */
+		if (ready_before) {
+			printk(KERN_INFO PPIP32 "%s: not ready\n",
+			       p->name);
+		}
+		ready_before = 0;
+		return 0;
+	}
+	ready_before = 1;
+
+	written = parport_ip32_fifo_write_block(p, buf, len, ECR_MODE_PPF);
+
+	/* Wait FIFO to empty.  Timeout is proportional to FIFO_depth.  */
+	parport_ip32_drain_fifo(p, physport->cad->timeout * priv->fifo_depth);
+
+	/* Check for a potential residue */
+	written -= parport_ip32_get_fifo_residue(p);
+
+	/* Then, wait for BUSY to get low. */
+	if (parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY)) {
+		printk(KERN_DEBUG PPIP32 "%s: BUSY timeout\n", p->name);
+	}
+
+	/* Reset FIFO */
+	parport_ip32_set_mode(p, ECR_MODE_PS2);
+
+	physport->ieee1284.phase = IEEE1284_PH_FWD_IDLE;
+
 	return written;
 }
 
