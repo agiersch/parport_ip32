@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.53 2005-11-11 13:11:05 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.54 2005-11-11 19:12:21 arnaud Exp $
  *
  * based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -625,20 +625,21 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	parport_ip32_dma.next = parport_ip32_dma.buf;
 	parport_ip32_dma.left = parport_ip32_dma.len;
 	parport_ip32_dma.ctx = 0;
-	barrier();
 
-	/* Setup and enable DMA channel */
+	/* Setup DMA direction and first two contexts */
 	ctrl = (dir == DMA_TO_DEVICE)? 0: MACEPAR_CTLSTAT_DIRECTION;
-	ctrl |= MACEPAR_CTLSTAT_ENABLE;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
 	wmb();
-
-	/* Setup first two contexts (and start DMA transfer) */
 	/* Single transfer should not cross a 4K page boundary */
 	limit = MACEPAR_CONTEXT_DATA_BOUND -
 		(parport_ip32_dma.next & (MACEPAR_CONTEXT_DATA_BOUND - 1));
 	parport_ip32_dma_setup_context(limit);
 	parport_ip32_dma_setup_context(MACEPAR_CONTEXT_DATA_BOUND);
+
+	/* Real start of DMA transfer */
+	ctrl |= MACEPAR_CTLSTAT_ENABLE;
+	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
+	wmb();
 
 	return 0;
 }
