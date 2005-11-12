@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.59 2005-11-12 00:45:45 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.60 2005-11-12 01:02:34 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -31,7 +31,7 @@
  *
  *	Basic SPP and PS2 modes are supported.
  *	Support for parallel port IRQ is present.
- *	Hardware SPP (a.k.a. compatibility), EPP, and some ECP modes are
+ *	Hardware SPP (a.k.a. compatibility), EPP, and ECP modes are
  *	supported.
  *	SPP/ECP FIFO can be driven in PIO or DMA mode.  PIO mode can work with
  *	or without interrupt support.
@@ -43,7 +43,7 @@
  *
  *	Fully implement ECP mode.
  *	EPP and ECP mode need to be tested.  I currently do not own any
- *	peripheral supporting this extended mode, and cannot test it.
+ *	peripheral supporting these extended mode, and cannot test them.
  *	If DMA mode works well, decide if support for PIO FIFO modes should be
  *	dropped.
  */
@@ -1689,9 +1689,8 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
 	/* Wait for peripheral to become ready */
-	if (parport_wait_peripheral(p,
-				    DSR_nBUSY | DSR_nFAULT,
-				    DSR_nBUSY | DSR_nFAULT)) {
+	if (parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
+				       DSR_nBUSY | DSR_nFAULT)) {
 		/* Avoid to flood the logs */
 		if (ready_before) {
 			printk(KERN_DEBUG PPIP32 "%s: not ready in %s\n",
@@ -1753,9 +1752,8 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 	/* Negociate to forward mode if necessary. */
 	if (physport->ieee1284.phase != IEEE1284_PH_FWD_IDLE) {
 		/* Event 47: Set nInit high. */
-		parport_ip32_frob_control(p,
-					  DCR_nINIT | DCR_AUTOFD,
-					  DCR_nINIT | DCR_AUTOFD);
+		parport_ip32_frob_control(p, DCR_nINIT | DCR_AUTOFD,
+					     DCR_nINIT | DCR_AUTOFD);
 
 		/* Event 49: PError goes high. */
 		if (parport_wait_peripheral (p, DSR_PERROR, DSR_PERROR)) {
@@ -1774,9 +1772,8 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
 	/* Wait for peripheral to become ready */
-	if (parport_wait_peripheral(p,
-				    DSR_nBUSY | DSR_nFAULT,
-				    DSR_nBUSY | DSR_nFAULT)) {
+	if (parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
+				       DSR_nBUSY | DSR_nFAULT)) {
 		/* Avoid to flood the logs */
 		if (ready_before) {
 			printk(KERN_INFO PPIP32 "%s: not ready in %s\n",
@@ -2167,7 +2164,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 			printk(KERN_WARNING PPIP32
 			       "%s: error: DMA disabled\n", p->name);
 		} else {
-			pr_probe(p, "DMA enabled\n");
+			pr_probe(p, "DMA support enabled\n");
 			p->dma = 0; /* arbitray value != PARPORT_DMA_NONE */
 			p->modes |= PARPORT_MODE_DMA;
 		}
@@ -2266,7 +2263,7 @@ static __exit void parport_ip32_unregister_port(struct parport *p)
  */
 static int __init parport_ip32_init(void)
 {
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.4pre\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.4\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	this_port = parport_ip32_probe_port();
 	return IS_ERR(this_port)? PTR_ERR(this_port): 0;
@@ -2285,7 +2282,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.4pre");		/* update in parport_ip32_init() too */
+MODULE_VERSION("0.4");		/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
