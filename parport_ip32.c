@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.61 2005-11-12 15:39:03 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.62 2005-11-12 17:10:54 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -39,7 +39,7 @@
  *	Hardware ECP mode is not fully implemented (ecp_read_data and
  *	ecp_write_addr are actually missing).
  *
- * TODO:
+ * To do:
  *
  *	Fully implement ECP mode.
  *	EPP and ECP mode need to be tested.  I currently do not own any
@@ -606,7 +606,7 @@ static irqreturn_t parport_ip32_merr_interrupt(int irq, void *dev_id,
  * @count:	buffer size
  *
  * Calls to parport_ip32_dma_start() and parport_ip32_dma_stop() must be
- * correclty balanced.
+ * correctly balanced.
  */
 static int parport_ip32_dma_start(enum dma_data_direction dir,
 				  void *addr, size_t count)
@@ -665,7 +665,7 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
  * parport_ip32_dma_stop - ends a running DMA transfer
  *
  * Calls to parport_ip32_dma_start() and parport_ip32_dma_stop() must be
- * correclty balanced.
+ * correctly balanced.
  */
 static void parport_ip32_dma_stop(void)
 {
@@ -1750,7 +1750,7 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 		return parport_ieee1284_ecp_write_data(p, buf, len, flags);
 	}
 
-	/* Negociate to forward mode if necessary. */
+	/* Negotiate to forward mode if necessary. */
 	if (physport->ieee1284.phase != IEEE1284_PH_FWD_IDLE) {
 		/* Event 47: Set nInit high. */
 		parport_ip32_frob_control(p, DCR_nINIT | DCR_AUTOFD,
@@ -2167,7 +2167,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 			       "%s: error: DMA disabled\n", p->name);
 		} else {
 			pr_probe(p, "DMA support enabled\n");
-			p->dma = 0; /* arbitray value != PARPORT_DMA_NONE */
+			p->dma = 0; /* arbitrary value != PARPORT_DMA_NONE */
 			p->modes |= PARPORT_MODE_DMA;
 		}
 	}
