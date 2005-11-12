@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -x
+set -e
+set -C
+
+SRC="${HOME}/src/linux-mips-GIT/"
+DEST="${HOME}/public_html/parport_ip32/"
+CVSROOT='groumpf:/home/cvsroot'
+export CVSROOT
+
+cd "$SRC"
+
+V=$(sed -n '/^MODULE_VERSION/{s/[^"]*"\([^"]*\)".*/\1/;p;}' ./drivers/parport/parport_ip32.c)
+
+cg-diff -r origin: \
+    ./drivers/parport/{Kconfig,Makefile,parport_ip32.c} \
+    ./include/linux/parport.h \
+| (
+    cd "$DEST"
+    gzip --best > parport_ip32-${V}.patch.gz
+    zcat parport_ip32-${V}.patch.gz | diffstat > parport_ip32-${V}.diffstat
+    ln -sf parport_ip32-${V}.patch.gz parport_ip32-latest.patch.gz
+    ln -sf parport_ip32-${V}.diffstat parport_ip32-latest.diffstat
+
+    cvs export -fr v${V//./_} parport_ip32/Changes
+    mv -f parport_ip32/Changes .
+    rmdir parport_ip32/
+)
+ 
