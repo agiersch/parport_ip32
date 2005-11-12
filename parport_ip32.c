@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.60 2005-11-12 01:02:34 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.61 2005-11-12 15:39:03 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -1114,11 +1114,11 @@ static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	unsigned int cleared;
-	unsigned int r;
 
 	if (!(parport_ip32_read_status(p) & DSR_TIMEOUT)) {
 		cleared = 1;
 	} else {
+		unsigned int r;
 		/* To clear timeout some chips require double read */
 		parport_ip32_read_status(p);
 		r = parport_ip32_read_status(p);
@@ -1375,7 +1375,8 @@ static inline unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
 			if ((ecr & ECR_F_EMPTY) && !(ecr & ECR_SERVINTR)
 			    && !lost_interrupt) {
 				printk(KERN_WARNING PPIP32
-				       "%s: lost interrupt\n", p->name);
+				       "%s: lost interrupt in %s\n",
+				       p->name, __func__);
 				lost_interrupt = 1;
 			}
 		}
@@ -1759,6 +1760,7 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 		if (parport_wait_peripheral (p, DSR_PERROR, DSR_PERROR)) {
 			printk (KERN_DEBUG PPIP32 "%s: PError timeout in %s",
 				p->name, __func__);
+			physport->ieee1284.phase = IEEE1284_PH_ECP_DIR_UNKNOWN;
 			return 0;
 		}
 	}
