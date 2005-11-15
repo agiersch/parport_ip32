@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.62 2005-11-12 17:10:54 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.63 2005-11-15 00:00:16 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -93,7 +93,6 @@
 #endif
 
 #include <linux/completion.h>
-#include <linux/config.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
