@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.65 2006-01-10 23:54:09 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.66 2006-01-13 00:16:12 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -61,10 +61,6 @@
  * registers are port-mapped.  On the O2, they are memory-mapped.
  * Furthermore, each register is replicated on 256 consecutive addresses (as
  * it is for the built-in serial ports on the same chip).
- *
- * Parts of the code were directly adapted from parport_pc. A better approach
- * would certainly be to make the corresponding code arch-independent, with
- * some generic functions for register access.
  */
 
 /*--- Some configuration defines ---------------------------------------*/
@@ -331,8 +327,6 @@ struct parport_ip32_private {
 static void parport_ip32_dump_state(struct parport *p, char *str,
 				    unsigned int show_ecp_config)
 {
-	/* here's hoping that reading these ports won't side-effect
-	 * anything underneath */
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	unsigned int i;
 
@@ -517,8 +511,6 @@ static void parport_ip32_dma_setup_context(unsigned int limit)
 		disable_irq_nosync(MACEISA_PAR_CTXA_IRQ);
 		disable_irq_nosync(MACEISA_PAR_CTXB_IRQ);
 	}
-	/* Make sure that parport_ip32_dma is actually written */
-	barrier();
 	up(&parport_ip32_dma.lock);
 }
 
@@ -639,7 +631,6 @@ static void parport_ip32_dma_stop(void)
 	ctrl = readq(&mace->perif.ctrl.parport.cntlstat);
 	ctrl &= ~MACEPAR_CTLSTAT_ENABLE;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
-	wmb();
 
 	/* Adjust residue (parport_ip32_dma.left) */
 	ctx_a = readq(&mace->perif.ctrl.parport.context_a);
@@ -762,9 +753,7 @@ static irqreturn_t parport_ip32_interrupt(int irq, void *dev_id,
 {
 	struct parport * const p = dev_id;
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	enum parport_ip32_irq_mode irq_mode = priv->irq_mode;
-	barrier();		/* ensures that priv->irq_mode is read */
-	switch (irq_mode) {
+	switch (priv->irq_mode) {
 	case PARPORT_IP32_IRQ_FWD:
 		parport_generic_irq(irq, p, regs);
 		break;
@@ -895,20 +884,6 @@ static inline unsigned int __parport_ip32_read_control(struct parport *p)
 }
 
 /**
- * parport_ip32_read_control - return cached contents of the DCR register
- * @p:		pointer to &struct parport
- *
- * The return value is masked so as to only return the value of %DCR_STROBE,
- * %DCR_AUTOFD, %DCR_nINIT, and %DCR_SELECT.
- */
-static inline unsigned char parport_ip32_read_control(struct parport *p)
-{
-	const unsigned int rm =
-		DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
-	return __parport_ip32_read_control(p) & rm;
-}
-
-/**
  * __parport_ip32_write_control - set new contents for the DCR register
  * @p:		pointer to &struct parport
  * @c:		new value to write
@@ -940,6 +915,20 @@ static inline void __parport_ip32_frob_control(struct parport *p,
 	unsigned int c;
 	c = (__parport_ip32_read_control(p) & ~mask) ^ val;
 	__parport_ip32_write_control(p, c);
+}
+
+/**
+ * parport_ip32_read_control - return cached contents of the DCR register
+ * @p:		pointer to &struct parport
+ *
+ * The return value is masked so as to only return the value of %DCR_STROBE,
+ * %DCR_AUTOFD, %DCR_nINIT, and %DCR_SELECT.
+ */
+static inline unsigned char parport_ip32_read_control(struct parport *p)
+{
+	const unsigned int rm =
+		DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
+	return __parport_ip32_read_control(p) & rm;
 }
 
 /**
@@ -1815,31 +1804,11 @@ static __initdata struct parport_operations parport_ip32_ops = {
  * Returns 1 if an ECP port is found, and 0 otherwise.  This function actually
  * checks if an Extended Control Register seems to be present.  On successful
  * return, the port is placed in SPP mode.
- *
- * We first check to see if ECR is the same as DCR.  If not, the low two bits
- * of ECR aren't writable, so we check by writing ECR and reading it back to
- * see if it's what we expect.
  */
 static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	unsigned int dcr, ecr, mask;
-
-	writeb(DCR_SELECT | DCR_nINIT, priv->regs.dcr);
-	dcr = readb(priv->regs.dcr);
-	mask = ECR_F_FULL | ECR_F_EMPTY;
-	if ((readb(priv->regs.ecr) & mask) == (dcr & mask)) {
-		/* Toggle bit ECR_F_FULL */
-		mask = ECR_F_FULL;
-		writeb(dcr ^ mask, priv->regs.dcr);
-		dcr = readb(priv->regs.dcr);
-		if ((readb(priv->regs.ecr) & mask) == (dcr & mask))
-			goto fail; /* Sure that no ECR register exists */
-	}
-
-	ecr = readb(priv->regs.ecr) & (ECR_F_FULL | ECR_F_EMPTY);
-	if (ecr != ECR_F_EMPTY)
-		goto fail;
+	unsigned int ecr;
 
 	ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
 	writeb(ecr, priv->regs.ecr);
@@ -1977,10 +1946,11 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	priv->readIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
 		writeb(0xaa, priv->regs.fifo);
-		if (!priv->readIntrThreshold
-		    && readb(priv->regs.ecr) & ECR_SERVINTR)
+		if (readb(priv->regs.ecr) & ECR_SERVINTR) {
 			/* readIntrThreshold reached */
 			priv->readIntrThreshold = i + 1;
+			break;
+		}
 	}
 	if (!priv->readIntrThreshold) {
 		pr_probe(p, "Can't get readIntrThreshold\n");
