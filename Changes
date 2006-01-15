@@ -1,16 +1,14 @@
 v0.5 --
 
-	* TODO :
-	  - Rework memory barriers.
-
-	* Apply comments from Randy Dunlap, that is:
-	  - Remove parport_ip32_{in,out}: use {read,write}b directly.
-	  - Rework function inlining.
-	  - Remove braces around one statement blocks.
-	  - Remove parentheses from return statements.
-	  - Add space before "?" and ":".
-	  - Check kernel docs.
-	  - Typos.
+	* Address comments from Randy Dunlap <rdunlap_at_xenotime.net>, that is:
+	  - Remove useless memory barriers.
+	  - Review function inlining.
+	  - Review kernel docs.
+	  - Fix style.
+	  - Fix typos.
+	* Remove useless parport_ip32_{in,out} functions.
+	* Review locking in DMA operations.
+	* Simplify parport_ip32_ecp_supported().
 
 v0.4 -- Sat, 12 Nov 2005 16:38:36 +0100
 
@@ -42,7 +40,7 @@ v0.2.1 -- Tue, 01 Nov 2005 23:50:51 +0100
 	  bits set together.
 	* Remove useless defines.
 	* Remove compilation options.
-	* Apply comments from Ralf Baechle <ralf@lmo>, that is:
+	* Address comments from Ralf Baechle <ralf_at_linux-mips.org>, that is:
 	  - Remove CONFIG_PARPORT_IP32_FIFO.
 	  - Remove declaration of mace for modules.
 	  - Remove DRV_* macros.
