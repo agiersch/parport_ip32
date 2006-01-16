@@ -2,7 +2,7 @@
 # Makefile for standalone compilation
 #
 
-.PHONY: modules clean
+.PHONY: modules clean install
 
 obj-m += parport_ip32.o
 
@@ -11,3 +11,6 @@ modules:
 
 clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+install:
+	install -m 644 parport_ip32.ko /lib/modules/$(shell uname -r)/kernel/drivers/parport/
