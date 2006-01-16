@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.67 2006-01-15 22:40:52 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.68 2006-01-16 22:30:50 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -278,7 +278,7 @@ struct parport_ip32_private {
 #if DEBUG_PARPORT_IP32 >= 1
 #	define pr_debug1(...)	printk(KERN_DEBUG __VA_ARGS__)
 #else /* DEBUG_PARPORT_IP32 < 1 */
-#	define pr_debug1(...)
+#	define pr_debug1(...)	do { } while (0)
 #endif
 
 /*
@@ -406,7 +406,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 #undef sep
 }
 #else /* DEBUG_PARPORT_IP32 < 2 */
-#define parport_ip32_dump_state(...)
+#define parport_ip32_dump_state(...)	do { } while (0)
 #endif
 
 /*
@@ -429,7 +429,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 				  (p)->name, __func__, #b, __b, __m);	\
 	} while (0)
 #else /* DEBUG_PARPORT_IP32 < 1 */
-#define CHECK_EXTRA_BITS(...)
+#define CHECK_EXTRA_BITS(...)	do { } while (0)
 #endif
 
 /*--- IP32 parallel port DMA operations --------------------------------*/
@@ -464,7 +464,7 @@ static inline void parport_ip32_dma_flush_writes(void)
 	volatile u64 junk = readq(&mace->perif.ctrl.parport.diagnostic);
 }
 #else
-#define parport_ip32_dma_flush_writes()
+#define parport_ip32_dma_flush_writes(...)	do { } while (0)
 #endif
 
 /**
@@ -574,7 +574,12 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	parport_ip32_dma_flush_writes();
 
 	/* DMA IRQs should normally be enabled */
-	BUG_ON(!parport_ip32_dma.irq_on);
+	if (!parport_ip32_dma.irq_on) {
+		WARN_ON(1);
+		enable_irq(MACEISA_PAR_CTXA_IRQ);
+		enable_irq(MACEISA_PAR_CTXB_IRQ);
+		parport_ip32_dma.irq_on = 1;
+	}
 
 	/* Prepare DMA pointers */
 	parport_ip32_dma.dir = dir;
