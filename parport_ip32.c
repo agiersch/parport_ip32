@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.70 2006-01-18 15:49:51 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.71 2006-01-18 19:45:21 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -101,7 +101,6 @@
 #include <linux/sched.h>
 #include <linux/stddef.h>
 #include <linux/spinlock.h>
-#include <linux/timer.h>
 #include <linux/types.h>
 #include <asm/io.h>
 #include <asm/ip32/ip32_ints.h>
@@ -670,6 +669,8 @@ static inline size_t parport_ip32_dma_get_residue(void)
 
 /**
  * parport_ip32_dma_register - initialize DMA engine
+ *
+ * Returns zero for success.
  */
 static int parport_ip32_dma_register(void)
 {
@@ -757,16 +758,6 @@ static irqreturn_t parport_ip32_interrupt(int irq, void *dev_id,
 		break;
 	}
 	return IRQ_HANDLED;
-}
-
-/**
- * parport_ip32_timeout - timeout handler
- * @data:	pointer to &struct parport (cast to unsigned long)
- */
-static void parport_ip32_timeout(unsigned long data)
-{
-	struct parport * const p = (struct parport *)data;
-	parport_ip32_wakeup(p);
 }
 
 /*--- Some utility function to manipulate ECR register -----------------*/
@@ -1297,7 +1288,6 @@ static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
 	static unsigned int lost_interrupt = 0;
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
-	DEFINE_TIMER(timer, parport_ip32_timeout, 0, (unsigned long)p);
 	unsigned long nfault_timeout;
 	unsigned long expire;
 	unsigned int count;
@@ -1324,9 +1314,8 @@ static unsigned int parport_ip32_fwp_wait_interrupt(struct parport *p)
 		if (!(ecr & ECR_F_EMPTY)) {
 			/* FIFO is not empty: wait for an interrupt or a
 			 * timeout to occur */
-			mod_timer(&timer, jiffies + nfault_timeout);
-			wait_for_completion(&priv->irq_complete);
-			del_timer(&timer);
+			wait_for_completion_interruptible_timeout(
+				&priv->irq_complete, nfault_timeout);
 			ecr = parport_ip32_read_econtrol(p);
 			if ((ecr & ECR_F_EMPTY) && !(ecr & ECR_SERVINTR)
 			    && !lost_interrupt) {
@@ -1420,7 +1409,6 @@ static size_t parport_ip32_fifo_write_block_dma(struct parport *p,
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
-	DEFINE_TIMER(timer, parport_ip32_timeout, 0, (unsigned long)p);
 	unsigned long nfault_timeout;
 	unsigned long expire;
 	size_t written;
@@ -1438,10 +1426,8 @@ static size_t parport_ip32_fifo_write_block_dma(struct parport *p,
 	while (1) {
 		if (parport_ip32_fifo_wait_break(p, expire))
 			break;
-
-		mod_timer(&timer, jiffies + nfault_timeout);
-		wait_for_completion(&priv->irq_complete);
-		del_timer(&timer);
+		wait_for_completion_interruptible_timeout(&priv->irq_complete,
+							  nfault_timeout);
 		ecr = parport_ip32_read_econtrol(p);
 		if (ecr & ECR_SERVINTR)
 			break;	/* DMA transfer just finished */
