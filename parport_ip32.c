@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.71 2006-01-18 19:45:21 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.72 2006-01-18 23:39:14 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -99,8 +99,8 @@
 #include <linux/module.h>
 #include <linux/parport.h>
 #include <linux/sched.h>
-#include <linux/stddef.h>
 #include <linux/spinlock.h>
+#include <linux/stddef.h>
 #include <linux/types.h>
 #include <asm/io.h>
 #include <asm/ip32/ip32_ints.h>
@@ -2167,7 +2167,7 @@ static __exit void parport_ip32_unregister_port(struct parport *p)
  */
 static int __init parport_ip32_init(void)
 {
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.5pre\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.5\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	this_port = parport_ip32_probe_port();
 	return IS_ERR(this_port) ? PTR_ERR(this_port) : 0;
@@ -2186,7 +2186,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.5pre");		/* update in parport_ip32_init() too */
+MODULE_VERSION("0.5");		/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
