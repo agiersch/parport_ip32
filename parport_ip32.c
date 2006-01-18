@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.68 2006-01-16 22:30:50 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.69 2006-01-18 15:07:29 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -457,16 +457,6 @@ struct parport_ip32_dma_data {
 };
 static struct parport_ip32_dma_data parport_ip32_dma;
 
-/* issue a PIO read to make sure no PIO writes are pending */
-#if 0
-static inline void parport_ip32_dma_flush_writes(void)
-{
-	volatile u64 junk = readq(&mace->perif.ctrl.parport.diagnostic);
-}
-#else
-#define parport_ip32_dma_flush_writes(...)	do { } while (0)
-#endif
-
 /**
  * parport_ip32_dma_setup_context - setup next DMA context
  * @limit:	maximum data size for the context
@@ -506,7 +496,6 @@ static void parport_ip32_dma_setup_context(unsigned int limit)
 		ctxval |= ((count - 1) << MACEPAR_CONTEXT_DATALEN_SHIFT) &
 			MACEPAR_CONTEXT_DATALEN_MASK;
 		writeq(ctxval, ctxreg);
-		parport_ip32_dma_flush_writes();
 		parport_ip32_dma.next += count;
 		parport_ip32_dma.left -= count;
 		parport_ip32_dma.ctx ^= 1U;
@@ -571,7 +560,6 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	/* Reset DMA controller */
 	ctrl = MACEPAR_CTLSTAT_RESET;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
-	parport_ip32_dma_flush_writes();
 
 	/* DMA IRQs should normally be enabled */
 	if (!parport_ip32_dma.irq_on) {
@@ -601,7 +589,6 @@ static int parport_ip32_dma_start(enum dma_data_direction dir,
 	/* Real start of DMA transfer */
 	ctrl |= MACEPAR_CTLSTAT_ENABLE;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
-	parport_ip32_dma_flush_writes();
 
 	return 0;
 }
@@ -663,7 +650,6 @@ static void parport_ip32_dma_stop(void)
 	/* Reset DMA controller, and re-enable IRQs */
 	ctrl = MACEPAR_CTLSTAT_RESET;
 	writeq(ctrl, &mace->perif.ctrl.parport.cntlstat);
-	parport_ip32_dma_flush_writes();
 	pr_debug(PPIP32 "IRQ on (stop)\n");
 	enable_irq(MACEISA_PAR_CTXA_IRQ);
 	enable_irq(MACEISA_PAR_CTXB_IRQ);
@@ -695,7 +681,6 @@ static int parport_ip32_dma_register(void)
 
 	/* Reset DMA controller */
 	writeq(MACEPAR_CTLSTAT_RESET, &mace->perif.ctrl.parport.cntlstat);
-	parport_ip32_dma_flush_writes();
 
 	/* Request IRQs */
 	err = request_irq(MACEISA_PAR_CTXA_IRQ, parport_ip32_dma_interrupt,
