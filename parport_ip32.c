@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.69 2006-01-18 15:07:29 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.70 2006-01-18 15:49:51 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -104,7 +104,6 @@
 #include <linux/timer.h>
 #include <linux/types.h>
 #include <asm/io.h>
-#include <asm/semaphore.h>
 #include <asm/ip32/ip32_ints.h>
 #include <asm/ip32/mace.h>
 
@@ -204,7 +203,7 @@ struct parport_ip32_regs {
 #define CNFGA_ID_16		(00U << CNFGA_ID_SHIFT)
 #define CNFGA_ID_8		(01U << CNFGA_ID_SHIFT)
 #define CNFGA_ID_32		(02U << CNFGA_ID_SHIFT)
-/* #define CNFGA_reserved		(1U << 3) */
+/* #define CNFGA_reserved	(1U << 3) */
 #define CNFGA_nBYTEINTRANS	(1U << 2)
 #define CNFGA_PWORDLEFT		((1U << 1) | (1U << 0))
 
