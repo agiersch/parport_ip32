@@ -1,0 +1,3 @@
+/home/jekyll/linux/linux-mips-GIT/drivers/parport/probe.c: In function `parport_read_device_id':
+/home/jekyll/linux/linux-mips-GIT/drivers/parport/probe.c:205: warning: int format, different type arg (arg 3)
+
