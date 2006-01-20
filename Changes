@@ -1,4 +1,4 @@
-v0.5 --
+v0.5 -- Fri, 20 Jan 2006 22:58:02 +0100
 
 	* Address comments from Randy Dunlap <rdunlap_at_xenotime.net>, that is:
 	  - Remove useless memory barriers.
@@ -9,6 +9,7 @@ v0.5 --
 	* Remove useless parport_ip32_{in,out} functions.
 	* Review locking in DMA operations.
 	* Simplify parport_ip32_ecp_supported().
+	* Fix includes.
 
 v0.4 -- Sat, 12 Nov 2005 16:38:36 +0100
 
