@@ -2,7 +2,7 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.73 2006-01-20 21:59:38 arnaud Exp $
+ * $Id: parport_ip32.c,v 1.74 2006-01-20 22:16:29 arnaud Exp $
  *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
@@ -10,7 +10,7 @@
  *
  * Thanks to Ilya A. Volynets-Evenbakh for his help.
  *
- * Copyright (C) 2005 Arnaud Giersch.
+ * Copyright (C) 2005, 2006 Arnaud Giersch.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
