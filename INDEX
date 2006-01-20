@@ -1,5 +1,8 @@
 File location in linux source tree:
 
+linux/
+	MAINTAINERS
+
 linux/Documentation
 	parport-lowlevel.txt
 
@@ -10,4 +13,3 @@ linux/drivers/parport/
 	Kconfig
 	Makefile
 	parport_ip32.c
-	parport_pc.c
