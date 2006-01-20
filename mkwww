@@ -4,7 +4,7 @@ set -x
 set -e
 set -C
 
-SRC="${HOME}/src/linux-mips-GIT/"
+SRC="${HOME}/src/linux/linux-mips-GIT/"
 DEST="${HOME}/public_html/parport_ip32/"
 CVSROOT='groumpf:/home/cvsroot'
 export CVSROOT
