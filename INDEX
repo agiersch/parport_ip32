@@ -13,3 +13,4 @@ linux/drivers/parport/
 	Kconfig
 	Makefile
 	parport_ip32.c
+	probe.c
