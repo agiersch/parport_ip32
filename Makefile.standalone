@@ -6,6 +6,8 @@
 
 obj-m += parport_ip32.o
 
+CFLAGS_parport_ip32.o = -DDEBUG_PARPORT_IP32=1
+
 modules:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 
@@ -14,3 +16,7 @@ clean:
 
 install:
 	install -m 644 parport_ip32.ko /lib/modules/$(shell uname -r)/kernel/drivers/parport/
+
+# Local Variables:
+# mode: makefile
+# End:

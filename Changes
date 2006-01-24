@@ -1,6 +1,16 @@
+v0.6 -- Tue, 24 Jan 2006 21:29:47 +0100
+
+	* Address comments from Andrew Morton <akpm_at_osdl.org>:
+	  - Style: avoid single line "if" and "case" statements.
+	  - Turn some printk() into pr_debug1().
+	  - Add a comment about "volatile".
+	  - Add a comment about readsb() and writesb().
+	* Only define DEBUG_PARPORT_IP32 if it is not already defined.
+	* Remove the CVS $Id: Changes,v 1.28 2006-01-24 20:35:10 arnaud Exp $ line.
+
 v0.5 -- Fri, 20 Jan 2006 22:58:02 +0100
 
-	* Address comments from Randy Dunlap <rdunlap_at_xenotime.net>, that is:
+	* Address comments from Randy Dunlap <rdunlap_at_xenotime.net>:
 	  - Remove useless memory barriers.
 	  - Review function inlining.
 	  - Review kernel docs.
@@ -41,7 +51,7 @@ v0.2.1 -- Tue, 01 Nov 2005 23:50:51 +0100
 	  bits set together.
 	* Remove useless defines.
 	* Remove compilation options.
-	* Address comments from Ralf Baechle <ralf_at_linux-mips.org>, that is:
+	* Address comments from Ralf Baechle <ralf_at_linux-mips.org>:
 	  - Remove CONFIG_PARPORT_IP32_FIFO.
 	  - Remove declaration of mace for modules.
 	  - Remove DRV_* macros.

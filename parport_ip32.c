@@ -2,8 +2,6 @@
  *
  * Author: Arnaud Giersch <arnaud.giersch@free.fr>
  *
- * $Id: parport_ip32.c,v 1.74 2006-01-20 22:16:29 arnaud Exp $
- *
  * Based on parport_pc.c by
  *	Phil Blundell, Tim Waugh, Jose Renau, David Campbell,
  *	Andrea Arcangeli, et al.
@@ -46,7 +44,10 @@
  *	peripheral supporting these extended mode, and cannot test them.
  *	If DMA mode works well, decide if support for PIO FIFO modes should be
  *	dropped.
- *	Use io{read,write} family functions when available on MIPS.
+ *	Use the io{read,write} family functions when they become available in
+ *	the linux-mips.org tree.  Note: the MIPS specific functions readsb()
+ *	and writesb() are to be translated by ioread8_rep() and iowrite8_rep()
+ *	respectively.
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
@@ -71,7 +72,9 @@
  *	2	parport_ip32_dump_state is enabled
  *	>=3	verbose level: pr_debug is enabled
  */
-#define DEBUG_PARPORT_IP32  1	/* 0 (disabled) for production */
+#if !defined(DEBUG_PARPORT_IP32)
+#	define DEBUG_PARPORT_IP32  0	/* 0 (disabled) for production */
+#endif
 
 /*----------------------------------------------------------------------*/
 
@@ -339,11 +342,16 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		printk(KERN_DEBUG PPIP32 "    ecr=0x%02x", ecr);
 		printk(" %s",
 		       ecr_modes[(ecr & ECR_MODE_MASK) >> ECR_MODE_SHIFT]);
-		if (ecr & ECR_nERRINTR)	printk(",nErrIntrEn");
-		if (ecr & ECR_DMAEN)	printk(",dmaEn");
-		if (ecr & ECR_SERVINTR)	printk(",serviceIntr");
-		if (ecr & ECR_F_FULL)	printk(",f_full");
-		if (ecr & ECR_F_EMPTY)	printk(",f_empty");
+		if (ecr & ECR_nERRINTR)
+			printk(",nErrIntrEn");
+		if (ecr & ECR_DMAEN)
+			printk(",dmaEn");
+		if (ecr & ECR_SERVINTR)
+			printk(",serviceIntr");
+		if (ecr & ECR_F_FULL)
+			printk(",f_full");
+		if (ecr & ECR_F_EMPTY)
+			printk(",f_empty");
 		printk("\n");
 	}
 	if (show_ecp_config) {
@@ -358,12 +366,21 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		printk(KERN_DEBUG PPIP32 "    cnfgA=0x%02x", cnfgA);
 		printk(" ISA-%s", (cnfgA & CNFGA_IRQ) ? "Level" : "Pulses");
 		switch (cnfgA & CNFGA_ID_MASK) {
-		case CNFGA_ID_8:	printk(",8 bits"); break;
-		case CNFGA_ID_16:	printk(",16 bits"); break;
-		case CNFGA_ID_32:	printk(",32 bits"); break;
-		default:		printk(",unknown ID"); break;
+		case CNFGA_ID_8:
+			printk(",8 bits");
+			break;
+		case CNFGA_ID_16:
+			printk(",16 bits");
+			break;
+		case CNFGA_ID_32:
+			printk(",32 bits");
+			break;
+		default:
+			printk(",unknown ID");
+			break;
 		}
-		if (!(cnfgA & CNFGA_nBYTEINTRANS))  printk(",ByteInTrans");
+		if (!(cnfgA & CNFGA_nBYTEINTRANS))
+			printk(",ByteInTrans");
 		if ((cnfgA & CNFGA_ID_MASK) != CNFGA_ID_8)
 			printk(",%d byte%s left", cnfgA & CNFGA_PWORDLEFT,
 			       ((cnfgA & CNFGA_PWORDLEFT) > 1) ? "s" : "");
@@ -373,7 +390,8 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		       (cnfgB & CNFGB_IRQ_MASK) >> CNFGB_IRQ_SHIFT,
 		       (cnfgB & CNFGB_DMA_MASK) >> CNFGB_DMA_SHIFT);
 		printk(",intrValue=%d", !!(cnfgB & CNFGB_INTRVAL));
-		if (cnfgB & CNFGB_COMPRESS)	printk(",compress");
+		if (cnfgB & CNFGB_COMPRESS)
+			printk(",compress");
 		printk("\n");
 	}
 	for (i = 0; i < 2; i++) {
@@ -381,11 +399,16 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		printk(KERN_DEBUG PPIP32 "    dcr(%s)=0x%02x",
 		       i ? "soft" : "hard", dcr);
 		printk(" %s", (dcr & DCR_DIR) ? "rev" : "fwd");
-		if (dcr & DCR_IRQ)		printk(",ackIntEn");
-		if (!(dcr & DCR_SELECT))	printk(",nSelectIn");
-		if (dcr & DCR_nINIT)		printk(",nInit");
-		if (!(dcr & DCR_AUTOFD))	printk(",nAutoFD");
-		if (!(dcr & DCR_STROBE))	printk(",nStrobe");
+		if (dcr & DCR_IRQ)
+			printk(",ackIntEn");
+		if (!(dcr & DCR_SELECT))
+			printk(",nSelectIn");
+		if (dcr & DCR_nINIT)
+			printk(",nInit");
+		if (!(dcr & DCR_AUTOFD))
+			printk(",nAutoFD");
+		if (!(dcr & DCR_STROBE))
+			printk(",nStrobe");
 		printk("\n");
 	}
 #define sep (f++ ? ',' : ' ')
@@ -393,13 +416,20 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		unsigned int f = 0;
 		unsigned int dsr = readb(priv->regs.dsr);
 		printk(KERN_DEBUG PPIP32 "    dsr=0x%02x", dsr);
-		if (!(dsr & DSR_nBUSY))		printk("%cBusy", sep);
-		if (dsr & DSR_nACK)		printk("%cnAck", sep);
-		if (dsr & DSR_PERROR)		printk("%cPError", sep);
-		if (dsr & DSR_SELECT)		printk("%cSelect", sep);
-		if (dsr & DSR_nFAULT)		printk("%cnFault", sep);
-		if (!(dsr & DSR_nPRINT))	printk("%c(Print)", sep);
-		if (dsr & DSR_TIMEOUT)		printk("%cTimeout", sep);
+		if (!(dsr & DSR_nBUSY))
+			printk("%cBusy", sep);
+		if (dsr & DSR_nACK)
+			printk("%cnAck", sep);
+		if (dsr & DSR_PERROR)
+			printk("%cPError", sep);
+		if (dsr & DSR_SELECT)
+			printk("%cSelect", sep);
+		if (dsr & DSR_nFAULT)
+			printk("%cnFault", sep);
+		if (!(dsr & DSR_nPRINT))
+			printk("%c(Print)", sep);
+		if (dsr & DSR_TIMEOUT)
+			printk("%cTimeout", sep);
 		printk("\n");
 	}
 #undef sep
@@ -469,6 +499,9 @@ static void parport_ip32_dma_setup_context(unsigned int limit)
 
 	spin_lock_irqsave(&parport_ip32_dma.lock, flags);
 	if (parport_ip32_dma.left > 0) {
+		/* Note: ctxreg is "volatile" here only because
+		 * mace->perif.ctrl.parport.context_a and context_b are
+		 * "volatile".  */
 		volatile u64 __iomem *ctxreg = (parport_ip32_dma.ctx == 0) ?
 			&mace->perif.ctrl.parport.context_a :
 			&mace->perif.ctrl.parport.context_b;
@@ -1219,18 +1252,15 @@ static unsigned int parport_ip32_fifo_wait_break(struct parport *p,
 {
 	cond_resched();
 	if (time_after(jiffies, expire)) {
-		printk(KERN_DEBUG PPIP32
-		       "%s: FIFO write timed out\n", p->name);
+		pr_debug1(PPIP32 "%s: FIFO write timed out\n", p->name);
 		return 1;
 	}
 	if (signal_pending(current)) {
-		printk(KERN_DEBUG PPIP32
-		       "%s: Signal pending\n", p->name);
+		pr_debug1(PPIP32 "%s: Signal pending\n", p->name);
 		return 1;
 	}
 	if (!(parport_ip32_read_status(p) & DSR_nFAULT)) {
-		printk(KERN_DEBUG PPIP32
-		       "%s: nFault asserted low\n", p->name);
+		pr_debug1(PPIP32 "%s: nFault asserted low\n", p->name);
 		return 1;
 	}
 	return 0;
@@ -1526,7 +1556,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p,
 	if (parport_ip32_read_econtrol(p) & ECR_F_EMPTY)
 		residue = 0;
 	else {
-		printk(KERN_DEBUG PPIP32 "%s: FIFO is stuck\n", p->name);
+		pr_debug1(PPIP32 "%s: FIFO is stuck\n", p->name);
 
 		/* Stop all transfers.
 		 *
@@ -1626,7 +1656,7 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 				       DSR_nBUSY | DSR_nFAULT)) {
 		/* Avoid to flood the logs */
 		if (ready_before)
-			printk(KERN_DEBUG PPIP32 "%s: not ready in %s\n",
+			printk(KERN_INFO PPIP32 "%s: not ready in %s\n",
 			       p->name, __func__);
 		ready_before = 0;
 		goto stop;
@@ -1686,9 +1716,9 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 					     DCR_nINIT | DCR_AUTOFD);
 
 		/* Event 49: PError goes high. */
-		if (parport_wait_peripheral (p, DSR_PERROR, DSR_PERROR)) {
-			printk (KERN_DEBUG PPIP32 "%s: PError timeout in %s",
-				p->name, __func__);
+		if (parport_wait_peripheral(p, DSR_PERROR, DSR_PERROR)) {
+			printk(KERN_DEBUG PPIP32 "%s: PError timeout in %s",
+			       p->name, __func__);
 			physport->ieee1284.phase = IEEE1284_PH_ECP_DIR_UNKNOWN;
 			return 0;
 		}
@@ -1829,9 +1859,15 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 
 	/* Find out PWord size */
 	switch (configa & CNFGA_ID_MASK) {
-	case CNFGA_ID_8:	pword = 1; break;
-	case CNFGA_ID_16:	pword = 2; break;
-	case CNFGA_ID_32:	pword = 4; break;
+	case CNFGA_ID_8:
+		pword = 1;
+		break;
+	case CNFGA_ID_16:
+		pword = 2;
+		break;
+	case CNFGA_ID_32:
+		pword = 4;
+		break;
 	default:
 		pr_probe(p, "Unknown implementation ID: 0x%0x\n",
 			 (configa & CNFGA_ID_MASK) >> CNFGA_ID_SHIFT);
@@ -2033,7 +2069,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 		err = -ENODEV;
 		goto fail;
 	}
-	parport_ip32_dump_state (p, "begin init", 0);
+	parport_ip32_dump_state(p, "begin init", 0);
 
 	/* We found what looks like a working ECR register.  Simply assume
 	 * that all modes are correctly supported.  Enable basic modes. */
@@ -2108,7 +2144,7 @@ static __init struct parport *parport_ip32_probe_port(void)
 	parport_ip32_data_forward(p);
 	parport_ip32_disable_irq(p);
 	parport_ip32_write_data(p, 0x00);
-	parport_ip32_dump_state (p, "end init", 0);
+	parport_ip32_dump_state(p, "end init", 0);
 
 	/* Print out what we found */
 	printk(KERN_INFO "%s: SGI IP32 at 0x%lx (0x%lx)",
@@ -2168,7 +2204,7 @@ static __exit void parport_ip32_unregister_port(struct parport *p)
  */
 static int __init parport_ip32_init(void)
 {
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.5\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.6\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	this_port = parport_ip32_probe_port();
 	return IS_ERR(this_port) ? PTR_ERR(this_port) : 0;
@@ -2187,7 +2223,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.5");		/* update in parport_ip32_init() too */
+MODULE_VERSION("0.6");		/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
