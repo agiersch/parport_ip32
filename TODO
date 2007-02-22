@@ -1,0 +1,11 @@
+Changes to merge upstream
+-------------------------
+
+* missing newline at end of Makefile
+
+Code corrections
+----------------
+
+* use platform_device
+* remove debugging code ?
+* use io{read,write} functions ? what about readq ?

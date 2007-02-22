@@ -1,16 +1,4 @@
 File location in linux source tree:
 
-linux/
-	MAINTAINERS
-
-linux/Documentation
-	parport-lowlevel.txt
-
-linux/include/linux/
-	parport.h
-
 linux/drivers/parport/
-	Kconfig
-	Makefile
 	parport_ip32.c
-	probe.c
