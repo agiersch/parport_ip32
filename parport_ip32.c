@@ -1584,14 +1584,17 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p,
 
 	/* Host recovery for ECP mode */
 	if (mode == ECR_MODE_ECP) {
+		int tmout;
 		parport_ip32_data_reverse(p);
 		parport_ip32_frob_control(p, DCR_nINIT, 0);
-		if (parport_wait_peripheral(p, DSR_PERROR, 0))
+		tmout = parport_wait_peripheral(p, DSR_PERROR, 0);
+		if (tmout)
 			pr_debug1(PPIP32 "%s: PEerror timeout 1 in %s\n",
 				  p->name, __func__);
 		parport_ip32_frob_control(p, DCR_STROBE, DCR_STROBE);
 		parport_ip32_frob_control(p, DCR_nINIT, DCR_nINIT);
-		if (parport_wait_peripheral(p, DSR_PERROR, DSR_PERROR))
+		tmout = parport_wait_peripheral(p, DSR_PERROR, DSR_PERROR);
+		if (tmout)
 			pr_debug1(PPIP32 "%s: PEerror timeout 2 in %s\n",
 				  p->name, __func__);
 	}
@@ -1632,6 +1635,7 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
 	size_t written = 0;
+	int tmout;
 
 	/* Special case: a timeout of zero means we cannot call schedule().
 	 * Also if O_NONBLOCK is set then use the default implementation. */
@@ -1647,8 +1651,9 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
 	/* Wait for peripheral to become ready */
-	if (parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
-				       DSR_nBUSY | DSR_nFAULT)) {
+	tmout = parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
+					DSR_nBUSY | DSR_nFAULT);
+	if (tmout) {
 		/* Avoid to flood the logs */
 		if (ready_before)
 			printk(KERN_INFO PPIP32 "%s: not ready in %s\n",
@@ -1667,7 +1672,8 @@ static size_t parport_ip32_compat_write_data(struct parport *p,
 	written -= parport_ip32_get_fifo_residue(p, ECR_MODE_PPF);
 
 	/* Then, wait for BUSY to get low. */
-	if (parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY))
+	tmout = parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY);
+	if (tmout)
 		printk(KERN_DEBUG PPIP32 "%s: BUSY timeout in %s\n",
 		       p->name, __func__);
 
@@ -1698,6 +1704,7 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	struct parport * const physport = p->physport;
 	size_t written = 0;
+	int tmout;
 
 	/* Special case: a timeout of zero means we cannot call schedule().
 	 * Also if O_NONBLOCK is set then use the default implementation. */
@@ -1711,7 +1718,8 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 					     DCR_nINIT | DCR_AUTOFD);
 
 		/* Event 49: PError goes high. */
-		if (parport_wait_peripheral(p, DSR_PERROR, DSR_PERROR)) {
+		tmout = parport_wait_peripheral(p, DSR_PERROR, DSR_PERROR);
+		if (tmout) {
 			printk(KERN_DEBUG PPIP32 "%s: PError timeout in %s",
 			       p->name, __func__);
 			physport->ieee1284.phase = IEEE1284_PH_ECP_DIR_UNKNOWN;
@@ -1728,8 +1736,9 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 	physport->ieee1284.phase = IEEE1284_PH_FWD_DATA;
 
 	/* Wait for peripheral to become ready */
-	if (parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
-				       DSR_nBUSY | DSR_nFAULT)) {
+	tmout = parport_wait_peripheral(p, DSR_nBUSY | DSR_nFAULT,
+					DSR_nBUSY | DSR_nFAULT);
+	if (tmout) {
 		/* Avoid to flood the logs */
 		if (ready_before)
 			printk(KERN_INFO PPIP32 "%s: not ready in %s\n",
@@ -1748,7 +1757,8 @@ static size_t parport_ip32_ecp_write_data(struct parport *p,
 	written -= parport_ip32_get_fifo_residue(p, ECR_MODE_ECP);
 
 	/* Then, wait for BUSY to get low. */
-	if (parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY))
+	tmout = parport_wait_peripheral(p, DSR_nBUSY, DSR_nBUSY);
+	if (tmout)
 		printk(KERN_DEBUG PPIP32 "%s: BUSY timeout in %s\n",
 		       p->name, __func__);
 
@@ -2199,7 +2209,7 @@ static __exit void parport_ip32_unregister_port(struct parport *p)
  */
 static int __init parport_ip32_init(void)
 {
-	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.6\n");
+	pr_info(PPIP32 "SGI IP32 built-in parallel port driver v0.7pre\n");
 	pr_debug1(PPIP32 "Compiled on %s, %s\n", __DATE__, __TIME__);
 	this_port = parport_ip32_probe_port();
 	return IS_ERR(this_port) ? PTR_ERR(this_port) : 0;
@@ -2218,7 +2228,7 @@ static void __exit parport_ip32_exit(void)
 MODULE_AUTHOR("Arnaud Giersch <arnaud.giersch@free.fr>");
 MODULE_DESCRIPTION("SGI IP32 built-in parallel port driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.6");		/* update in parport_ip32_init() too */
+MODULE_VERSION("0.7pre");	/* update in parport_ip32_init() too */
 
 module_init(parport_ip32_init);
 module_exit(parport_ip32_exit);
