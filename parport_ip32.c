@@ -8,7 +8,7 @@
  *
  * Thanks to Ilya A. Volynets-Evenbakh for his help.
  *
- * Copyright (C) 2005, 2006 Arnaud Giersch.
+ * Copyright (C) 2005-2007 Arnaud Giersch.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -557,14 +557,6 @@ static irqreturn_t parport_ip32_dma_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#if DEBUG_PARPORT_IP32
-static irqreturn_t parport_ip32_merr_interrupt(int irq, void *dev_id)
-{
-	pr_trace1(NULL, "(%d)", irq);
-	return IRQ_HANDLED;
-}
-#endif
-
 /**
  * parport_ip32_dma_start - begins a DMA transfer
  * @dir:	DMA direction: DMA_TO_DEVICE or DMA_FROM_DEVICE
@@ -722,19 +714,8 @@ static int parport_ip32_dma_register(void)
 			  0, "parport_ip32", NULL);
 	if (err)
 		goto fail_b;
-#if DEBUG_PARPORT_IP32
-	/* FIXME - what is this IRQ for? */
-	err = request_irq(MACEISA_PAR_MERR_IRQ, parport_ip32_merr_interrupt,
-			  0, "parport_ip32", NULL);
-	if (err)
-		goto fail_merr;
-#endif
 	return 0;
 
-#if DEBUG_PARPORT_IP32
-fail_merr:
-	free_irq(MACEISA_PAR_CTXB_IRQ, NULL);
-#endif
 fail_b:
 	free_irq(MACEISA_PAR_CTXA_IRQ, NULL);
 fail_a:
@@ -746,9 +727,6 @@ fail_a:
  */
 static void parport_ip32_dma_unregister(void)
 {
-#if DEBUG_PARPORT_IP32
-	free_irq(MACEISA_PAR_MERR_IRQ, NULL);
-#endif
 	free_irq(MACEISA_PAR_CTXB_IRQ, NULL);
 	free_irq(MACEISA_PAR_CTXA_IRQ, NULL);
 }
