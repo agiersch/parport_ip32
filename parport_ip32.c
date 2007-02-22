@@ -44,10 +44,7 @@
  *	peripheral supporting these extended mode, and cannot test them.
  *	If DMA mode works well, decide if support for PIO FIFO modes should be
  *	dropped.
- *	Use the io{read,write} family functions when they become available in
- *	the linux-mips.org tree.  Note: the MIPS specific functions readsb()
- *	and writesb() are to be translated by ioread8_rep() and iowrite8_rep()
- *	respectively.
+ *	Find and use some io{read,write} equivalent for {read,write}q?
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
@@ -338,7 +335,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		static const char ecr_modes[8][4] = {"SPP", "PS2", "PPF",
 						     "ECP", "EPP", "???",
 						     "TST", "CFG"};
-		unsigned int ecr = readb(priv->regs.ecr);
+		unsigned int ecr = ioread8(priv->regs.ecr);
 		printk(KERN_DEBUG PPIP32 "    ecr=0x%02x", ecr);
 		printk(" %s",
 		       ecr_modes[(ecr & ECR_MODE_MASK) >> ECR_MODE_SHIFT]);
@@ -356,13 +353,13 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 	}
 	if (show_ecp_config) {
 		unsigned int oecr, cnfgA, cnfgB;
-		oecr = readb(priv->regs.ecr);
-		writeb(ECR_MODE_PS2, priv->regs.ecr);
-		writeb(ECR_MODE_CFG, priv->regs.ecr);
-		cnfgA = readb(priv->regs.cnfgA);
-		cnfgB = readb(priv->regs.cnfgB);
-		writeb(ECR_MODE_PS2, priv->regs.ecr);
-		writeb(oecr, priv->regs.ecr);
+		oecr = ioread8(priv->regs.ecr);
+		iowrite8(ECR_MODE_PS2, priv->regs.ecr);
+		iowrite8(ECR_MODE_CFG, priv->regs.ecr);
+		cnfgA = ioread8(priv->regs.cnfgA);
+		cnfgB = ioread8(priv->regs.cnfgB);
+		iowrite8(ECR_MODE_PS2, priv->regs.ecr);
+		iowrite8(oecr, priv->regs.ecr);
 		printk(KERN_DEBUG PPIP32 "    cnfgA=0x%02x", cnfgA);
 		printk(" ISA-%s", (cnfgA & CNFGA_IRQ) ? "Level" : "Pulses");
 		switch (cnfgA & CNFGA_ID_MASK) {
@@ -395,7 +392,8 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 		printk("\n");
 	}
 	for (i = 0; i < 2; i++) {
-		unsigned int dcr = i ? priv->dcr_cache : readb(priv->regs.dcr);
+		unsigned int dcr = i ? priv->dcr_cache
+				     : ioread8(priv->regs.dcr);
 		printk(KERN_DEBUG PPIP32 "    dcr(%s)=0x%02x",
 		       i ? "soft" : "hard", dcr);
 		printk(" %s", (dcr & DCR_DIR) ? "rev" : "fwd");
@@ -414,7 +412,7 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 #define sep (f++ ? ',' : ' ')
 	{
 		unsigned int f = 0;
-		unsigned int dsr = readb(priv->regs.dsr);
+		unsigned int dsr = ioread8(priv->regs.dsr);
 		printk(KERN_DEBUG PPIP32 "    dsr=0x%02x", dsr);
 		if (!(dsr & DSR_nBUSY))
 			printk("%cBusy", sep);
@@ -776,7 +774,7 @@ static irqreturn_t parport_ip32_interrupt(int irq, void *dev_id)
 static inline unsigned int parport_ip32_read_econtrol(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	return readb(priv->regs.ecr);
+	return ioread8(priv->regs.ecr);
 }
 
 /**
@@ -788,7 +786,7 @@ static inline void parport_ip32_write_econtrol(struct parport *p,
 					       unsigned int c)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	writeb(c, priv->regs.ecr);
+	iowrite8(c, priv->regs.ecr);
 }
 
 /**
@@ -842,7 +840,7 @@ static void parport_ip32_set_mode(struct parport *p, unsigned int mode)
 static inline unsigned char parport_ip32_read_data(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	return readb(priv->regs.data);
+	return ioread8(priv->regs.data);
 }
 
 /**
@@ -853,7 +851,7 @@ static inline unsigned char parport_ip32_read_data(struct parport *p)
 static inline void parport_ip32_write_data(struct parport *p, unsigned char d)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	writeb(d, priv->regs.data);
+	iowrite8(d, priv->regs.data);
 }
 
 /**
@@ -863,7 +861,7 @@ static inline void parport_ip32_write_data(struct parport *p, unsigned char d)
 static inline unsigned char parport_ip32_read_status(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
-	return readb(priv->regs.dsr);
+	return ioread8(priv->regs.dsr);
 }
 
 /**
@@ -887,7 +885,7 @@ static inline void __parport_ip32_write_control(struct parport *p,
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	CHECK_EXTRA_BITS(p, c, priv->dcr_writable);
 	c &= priv->dcr_writable; /* only writable bits */
-	writeb(c, priv->regs.dcr);
+	iowrite8(c, priv->regs.dcr);
 	priv->dcr_cache = c;		/* update soft copy */
 }
 
@@ -1061,9 +1059,9 @@ static unsigned int parport_ip32_clear_epp_timeout(struct parport *p)
 		parport_ip32_read_status(p);
 		r = parport_ip32_read_status(p);
 		/* Some reset by writing 1 */
-		writeb(r | DSR_TIMEOUT, priv->regs.dsr);
+		iowrite8(r | DSR_TIMEOUT, priv->regs.dsr);
 		/* Others by writing 0 */
-		writeb(r & ~DSR_TIMEOUT, priv->regs.dsr);
+		iowrite8(r & ~DSR_TIMEOUT, priv->regs.dsr);
 
 		r = parport_ip32_read_status(p);
 		cleared = !(r & DSR_TIMEOUT);
@@ -1091,8 +1089,8 @@ static size_t parport_ip32_epp_read(void __iomem *eppreg,
 	parport_ip32_data_reverse(p);
 	parport_ip32_write_control(p, DCR_nINIT);
 	if ((flags & PARPORT_EPP_FAST) && (len > 1)) {
-		readsb(eppreg, buf, len);
-		if (readb(priv->regs.dsr) & DSR_TIMEOUT) {
+		ioread8_rep(eppreg, buf, len);
+		if (ioread8(priv->regs.dsr) & DSR_TIMEOUT) {
 			parport_ip32_clear_epp_timeout(p);
 			return -EIO;
 		}
@@ -1100,8 +1098,8 @@ static size_t parport_ip32_epp_read(void __iomem *eppreg,
 	} else {
 		u8 *bufp = buf;
 		for (got = 0; got < len; got++) {
-			*bufp++ = readb(eppreg);
-			if (readb(priv->regs.dsr) & DSR_TIMEOUT) {
+			*bufp++ = ioread8(eppreg);
+			if (ioread8(priv->regs.dsr) & DSR_TIMEOUT) {
 				parport_ip32_clear_epp_timeout(p);
 				break;
 			}
@@ -1130,8 +1128,8 @@ static size_t parport_ip32_epp_write(void __iomem *eppreg,
 	parport_ip32_data_forward(p);
 	parport_ip32_write_control(p, DCR_nINIT);
 	if ((flags & PARPORT_EPP_FAST) && (len > 1)) {
-		writesb(eppreg, buf, len);
-		if (readb(priv->regs.dsr) & DSR_TIMEOUT) {
+		iowrite8_rep(eppreg, buf, len);
+		if (ioread8(priv->regs.dsr) & DSR_TIMEOUT) {
 			parport_ip32_clear_epp_timeout(p);
 			return -EIO;
 		}
@@ -1139,8 +1137,8 @@ static size_t parport_ip32_epp_write(void __iomem *eppreg,
 	} else {
 		const u8 *bufp = buf;
 		for (written = 0; written < len; written++) {
-			writeb(*bufp++, eppreg);
-			if (readb(priv->regs.dsr) & DSR_TIMEOUT) {
+			iowrite8(*bufp++, eppreg);
+			if (ioread8(priv->regs.dsr) & DSR_TIMEOUT) {
 				parport_ip32_clear_epp_timeout(p);
 				break;
 			}
@@ -1384,10 +1382,10 @@ static size_t parport_ip32_fifo_write_block_pio(struct parport *p,
 		if (count > left)
 			count = left;
 		if (count == 1) {
-			writeb(*bufp, priv->regs.fifo);
+			iowrite8(*bufp, priv->regs.fifo);
 			bufp++, left--;
 		} else {
-			writesb(priv->regs.fifo, bufp, count);
+			iowrite8_rep(priv->regs.fifo, bufp, count);
 			bufp += count, left -= count;
 		}
 	}
@@ -1549,7 +1547,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p,
 		for (residue = priv->fifo_depth; residue > 0; residue--) {
 			if (parport_ip32_read_econtrol(p) & ECR_F_FULL)
 				break;
-			writeb(0x00, priv->regs.fifo);
+			iowrite8(0x00, priv->regs.fifo);
 		}
 	}
 	if (residue)
@@ -1579,7 +1577,7 @@ static unsigned int parport_ip32_get_fifo_residue(struct parport *p,
 
 	/* Adjust residue if needed */
 	parport_ip32_set_mode(p, ECR_MODE_CFG);
-	cnfga = readb(priv->regs.cnfgA);
+	cnfga = ioread8(priv->regs.cnfgA);
 	if (!(cnfga & CNFGA_nBYTEINTRANS)) {
 		pr_debug1(PPIP32 "%s: cnfgA contains 0x%02x\n",
 			  p->name, cnfga);
@@ -1806,8 +1804,8 @@ static __init unsigned int parport_ip32_ecp_supported(struct parport *p)
 	unsigned int ecr;
 
 	ecr = ECR_MODE_PS2 | ECR_nERRINTR | ECR_SERVINTR;
-	writeb(ecr, priv->regs.ecr);
-	if (readb(priv->regs.ecr) != (ecr | ECR_F_EMPTY))
+	iowrite8(ecr, priv->regs.ecr);
+	if (ioread8(priv->regs.ecr) != (ecr | ECR_F_EMPTY))
 		goto fail;
 
 	pr_probe(p, "Found working ECR register\n");
@@ -1837,8 +1835,8 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 
 	/* Configuration mode */
 	parport_ip32_set_mode(p, ECR_MODE_CFG);
-	configa = readb(priv->regs.cnfgA);
-	configb = readb(priv->regs.cnfgB);
+	configa = ioread8(priv->regs.cnfgA);
+	configb = ioread8(priv->regs.cnfgB);
 
 	/* Find out PWord size */
 	switch (configa & CNFGA_ID_MASK) {
@@ -1865,16 +1863,16 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	pr_probe(p, "PWord is %u bits\n", 8 * priv->pword);
 
 	/* Check for compression support */
-	writeb(configb | CNFGB_COMPRESS, priv->regs.cnfgB);
-	if (readb(priv->regs.cnfgB) & CNFGB_COMPRESS)
+	iowrite8(configb | CNFGB_COMPRESS, priv->regs.cnfgB);
+	if (ioread8(priv->regs.cnfgB) & CNFGB_COMPRESS)
 		pr_probe(p, "Hardware compression detected (unsupported)\n");
-	writeb(configb & ~CNFGB_COMPRESS, priv->regs.cnfgB);
+	iowrite8(configb & ~CNFGB_COMPRESS, priv->regs.cnfgB);
 
 	/* Reset FIFO and go in test mode (no interrupt, no DMA) */
 	parport_ip32_set_mode(p, ECR_MODE_TST);
 
 	/* FIFO must be empty now */
-	if (!(readb(priv->regs.ecr) & ECR_F_EMPTY)) {
+	if (!(ioread8(priv->regs.ecr) & ECR_F_EMPTY)) {
 		pr_probe(p, "FIFO not reset\n");
 		goto fail;
 	}
@@ -1882,12 +1880,12 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	/* Find out FIFO depth. */
 	priv->fifo_depth = 0;
 	for (i = 0; i < 1024; i++) {
-		if (readb(priv->regs.ecr) & ECR_F_FULL) {
+		if (ioread8(priv->regs.ecr) & ECR_F_FULL) {
 			/* FIFO full */
 			priv->fifo_depth = i;
 			break;
 		}
-		writeb((u8)i, priv->regs.fifo);
+		iowrite8((u8)i, priv->regs.fifo);
 	}
 	if (i >= 1024) {
 		pr_probe(p, "Can't fill FIFO\n");
@@ -1906,16 +1904,16 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	 * if we get an interrupt. */
 	priv->writeIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
-		if (readb(priv->regs.fifo) != (u8)i) {
+		if (ioread8(priv->regs.fifo) != (u8)i) {
 			pr_probe(p, "Invalid data in FIFO\n");
 			goto fail;
 		}
 		if (!priv->writeIntrThreshold
-		    && readb(priv->regs.ecr) & ECR_SERVINTR)
+		    && ioread8(priv->regs.ecr) & ECR_SERVINTR)
 			/* writeIntrThreshold reached */
 			priv->writeIntrThreshold = i + 1;
 		if (i + 1 < priv->fifo_depth
-		    && readb(priv->regs.ecr) & ECR_F_EMPTY) {
+		    && ioread8(priv->regs.ecr) & ECR_F_EMPTY) {
 			/* FIFO empty before the last byte? */
 			pr_probe(p, "Data lost in FIFO\n");
 			goto fail;
@@ -1928,7 +1926,7 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	pr_probe(p, "writeIntrThreshold is %u\n", priv->writeIntrThreshold);
 
 	/* FIFO must be empty now */
-	if (!(readb(priv->regs.ecr) & ECR_F_EMPTY)) {
+	if (!(ioread8(priv->regs.ecr) & ECR_F_EMPTY)) {
 		pr_probe(p, "Can't empty FIFO\n");
 		goto fail;
 	}
@@ -1946,8 +1944,8 @@ static __init unsigned int parport_ip32_fifo_supported(struct parport *p)
 	 * an interrupt. */
 	priv->readIntrThreshold = 0;
 	for (i = 0; i < priv->fifo_depth; i++) {
-		writeb(0xaa, priv->regs.fifo);
-		if (readb(priv->regs.ecr) & ECR_SERVINTR) {
+		iowrite8(0xaa, priv->regs.fifo);
+		if (ioread8(priv->regs.ecr) & ECR_SERVINTR) {
 			/* readIntrThreshold reached */
 			priv->readIntrThreshold = i + 1;
 			break;
