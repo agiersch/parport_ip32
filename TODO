@@ -9,3 +9,4 @@ Code corrections
 * use platform_device
 * remove debugging code ?
 * use io{read,write} functions ? what about readq ?
+* remove explicit function inlining ?
