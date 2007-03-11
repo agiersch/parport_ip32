@@ -1449,7 +1449,7 @@ static size_t parport_ip32_fifo_write_block_dma(struct parport *p,
  * @len:	length of buffer @buf
  *
  * Uses PIO or DMA to write the contents of the buffer @buf into the parallel
- * p FIFO.  Returns the number of bytes that were actually written.
+ * port FIFO.  Returns the number of bytes that were actually written.
  */
 static size_t parport_ip32_fifo_write_block(struct parport *p,
 					    const void *buf, size_t len)
