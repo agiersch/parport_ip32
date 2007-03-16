@@ -9,6 +9,7 @@ Code corrections
 * use platform_device
 * remove debugging code ?
 * use io{read,write} functions ? what about readq ?
+* get rid of driver version ?
 * review IRQ storm w.r.t. DMA operations
 
 Done
@@ -60,3 +61,4 @@ Done
 .init.text      0ef8            0dd8            >       -120    (-288)
 [...]
 .pdr            0400            04c0            <       +0c0    (+192)
+
