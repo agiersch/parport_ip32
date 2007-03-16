@@ -683,7 +683,7 @@ static void parport_ip32_dma_stop(void)
  *
  * Returns the number of bytes remaining from last DMA transfer.
  */
-static inline size_t parport_ip32_dma_get_residue(void)
+static size_t parport_ip32_dma_get_residue(void)
 {
 	return parport_ip32_dma.left;
 }
@@ -735,7 +735,7 @@ static void parport_ip32_dma_unregister(void)
  * parport_ip32_wakeup - wakes up code waiting for an interrupt
  * @p:		pointer to &struct parport
  */
-static inline void parport_ip32_wakeup(struct parport *p)
+static void parport_ip32_wakeup(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	complete(&priv->irq_complete);
@@ -771,7 +771,7 @@ static irqreturn_t parport_ip32_interrupt(int irq, void *dev_id)
  * parport_ip32_read_econtrol - read contents of the ECR register
  * @p:		pointer to &struct parport
  */
-static inline unsigned int parport_ip32_read_econtrol(struct parport *p)
+static unsigned int parport_ip32_read_econtrol(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	return ioread8(priv->regs.ecr);
@@ -782,8 +782,7 @@ static inline unsigned int parport_ip32_read_econtrol(struct parport *p)
  * @p:		pointer to &struct parport
  * @c:		new value to write
  */
-static inline void parport_ip32_write_econtrol(struct parport *p,
-					       unsigned int c)
+static void parport_ip32_write_econtrol(struct parport *p, unsigned int c)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	iowrite8(c, priv->regs.ecr);
@@ -798,9 +797,8 @@ static inline void parport_ip32_write_econtrol(struct parport *p,
  * Read from the ECR, mask out the bits in @mask, exclusive-or with the bits
  * in @val, and write the result to the ECR.
  */
-static inline void parport_ip32_frob_econtrol(struct parport *p,
-					      unsigned int mask,
-					      unsigned int val)
+static void parport_ip32_frob_econtrol(struct parport *p,
+				       unsigned int mask, unsigned int val)
 {
 	unsigned int c;
 	c = (parport_ip32_read_econtrol(p) & ~mask) ^ val;
@@ -837,7 +835,7 @@ static void parport_ip32_set_mode(struct parport *p, unsigned int mode)
  * parport_ip32_read_data - return current contents of the DATA register
  * @p:		pointer to &struct parport
  */
-static inline unsigned char parport_ip32_read_data(struct parport *p)
+static unsigned char parport_ip32_read_data(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	return ioread8(priv->regs.data);
@@ -848,7 +846,7 @@ static inline unsigned char parport_ip32_read_data(struct parport *p)
  * @p:		pointer to &struct parport
  * @d:		new value to write
  */
-static inline void parport_ip32_write_data(struct parport *p, unsigned char d)
+static void parport_ip32_write_data(struct parport *p, unsigned char d)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	iowrite8(d, priv->regs.data);
@@ -858,7 +856,7 @@ static inline void parport_ip32_write_data(struct parport *p, unsigned char d)
  * parport_ip32_read_status - return current contents of the DSR register
  * @p:		pointer to &struct parport
  */
-static inline unsigned char parport_ip32_read_status(struct parport *p)
+static unsigned char parport_ip32_read_status(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	return ioread8(priv->regs.dsr);
@@ -868,7 +866,7 @@ static inline unsigned char parport_ip32_read_status(struct parport *p)
  * __parport_ip32_read_control - return cached contents of the DCR register
  * @p:		pointer to &struct parport
  */
-static inline unsigned int __parport_ip32_read_control(struct parport *p)
+static unsigned int __parport_ip32_read_control(struct parport *p)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	return priv->dcr_cache; /* use soft copy */
@@ -879,8 +877,7 @@ static inline unsigned int __parport_ip32_read_control(struct parport *p)
  * @p:		pointer to &struct parport
  * @c:		new value to write
  */
-static inline void __parport_ip32_write_control(struct parport *p,
-						unsigned int c)
+static void __parport_ip32_write_control(struct parport *p, unsigned int c)
 {
 	struct parport_ip32_private * const priv = p->physport->private_data;
 	CHECK_EXTRA_BITS(p, c, priv->dcr_writable);
@@ -899,9 +896,8 @@ static inline void __parport_ip32_write_control(struct parport *p,
  * exclusive-or with the bits in @val, and write the result to the DCR.
  * Actually, the cached contents of the DCR is used.
  */
-static inline void __parport_ip32_frob_control(struct parport *p,
-					       unsigned int mask,
-					       unsigned int val)
+static void __parport_ip32_frob_control(struct parport *p,
+					unsigned int mask, unsigned int val)
 {
 	unsigned int c;
 	c = (__parport_ip32_read_control(p) & ~mask) ^ val;
@@ -915,7 +911,7 @@ static inline void __parport_ip32_frob_control(struct parport *p,
  * The return value is masked so as to only return the value of %DCR_STROBE,
  * %DCR_AUTOFD, %DCR_nINIT, and %DCR_SELECT.
  */
-static inline unsigned char parport_ip32_read_control(struct parport *p)
+static unsigned char parport_ip32_read_control(struct parport *p)
 {
 	const unsigned int rm =
 		DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
@@ -930,8 +926,7 @@ static inline unsigned char parport_ip32_read_control(struct parport *p)
  * The value is masked so as to only change the value of %DCR_STROBE,
  * %DCR_AUTOFD, %DCR_nINIT, and %DCR_SELECT.
  */
-static inline void parport_ip32_write_control(struct parport *p,
-					      unsigned char c)
+static void parport_ip32_write_control(struct parport *p, unsigned char c)
 {
 	const unsigned int wm =
 		DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
@@ -948,9 +943,9 @@ static inline void parport_ip32_write_control(struct parport *p,
  * This differs from __parport_ip32_frob_control() in that it only allows to
  * change the value of %DCR_STROBE, %DCR_AUTOFD, %DCR_nINIT, and %DCR_SELECT.
  */
-static inline unsigned char parport_ip32_frob_control(struct parport *p,
-						      unsigned char mask,
-						      unsigned char val)
+static unsigned char parport_ip32_frob_control(struct parport *p,
+					       unsigned char mask,
+					       unsigned char val)
 {
 	const unsigned int wm =
 		DCR_STROBE | DCR_AUTOFD | DCR_nINIT | DCR_SELECT;
@@ -964,7 +959,7 @@ static inline unsigned char parport_ip32_frob_control(struct parport *p,
  * parport_ip32_disable_irq - disable interrupts on the rising edge of nACK
  * @p:		pointer to &struct parport
  */
-static inline void parport_ip32_disable_irq(struct parport *p)
+static void parport_ip32_disable_irq(struct parport *p)
 {
 	__parport_ip32_frob_control(p, DCR_IRQ, 0);
 }
@@ -973,7 +968,7 @@ static inline void parport_ip32_disable_irq(struct parport *p)
  * parport_ip32_enable_irq - enable interrupts on the rising edge of nACK
  * @p:		pointer to &struct parport
  */
-static inline void parport_ip32_enable_irq(struct parport *p)
+static void parport_ip32_enable_irq(struct parport *p)
 {
 	__parport_ip32_frob_control(p, DCR_IRQ, DCR_IRQ);
 }
@@ -984,7 +979,7 @@ static inline void parport_ip32_enable_irq(struct parport *p)
  *
  * Enable the data line drivers, for 8-bit host-to-peripheral communications.
  */
-static inline void parport_ip32_data_forward(struct parport *p)
+static void parport_ip32_data_forward(struct parport *p)
 {
 	__parport_ip32_frob_control(p, DCR_DIR, 0);
 }
@@ -996,7 +991,7 @@ static inline void parport_ip32_data_forward(struct parport *p)
  * Place the data bus in a high impedance state, if @p->modes has the
  * PARPORT_MODE_TRISTATE bit set.
  */
-static inline void parport_ip32_data_reverse(struct parport *p)
+static void parport_ip32_data_reverse(struct parport *p)
 {
 	__parport_ip32_frob_control(p, DCR_DIR, DCR_DIR);
 }

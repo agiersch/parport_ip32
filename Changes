@@ -1,5 +1,8 @@
 v0.7 --
 
+	* Remove explicit use of the inline keyword.  The compiler
+	  should know better when to inline functions.
+
 	* Use io{read,write} family functions.
 	* Don't reclaim unused MACEISA_PAR_MERR_IRQ interrupt anymore.
 	* Cosmetic changes.

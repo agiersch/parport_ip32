@@ -9,4 +9,54 @@ Code corrections
 * use platform_device
 * remove debugging code ?
 * use io{read,write} functions ? what about readq ?
-* remove explicit function inlining ?
+* review IRQ storm w.r.t. DMA operations
+
+Done
+----
+
+* remove explicit function inlining ? YES
+
+
+##### debug / inline
+
+ 63647 parport_ip32.ko
+  2488 parport_ip32.mod.o
+ 62144 parport_ip32.o
+
+##### debug / no inline
+
+ 54437 parport_ip32.ko
+  2488 parport_ip32.mod.o
+ 52936 parport_ip32.o
+
+#####--------------------------
+
+                inline          no inline
+
+.text           28c0            1e60            >       -a60    (-2656)
+.init.text      1068            0df8            >       -270    (-624)
+[...]
+.rodata.str1.8  0980            0988            <       +8      (+8)
+[...]
+.pdr            0400            04c0            <       +0c0    (+192)
+
+##### no debug / inline
+
+ 49749 parport_ip32.ko
+  2488 parport_ip32.mod.o
+ 48248 parport_ip32.o
+
+##### no debug / no inline
+
+ 49937 parport_ip32.ko
+  2488 parport_ip32.mod.o
+ 48456 parport_ip32.o
+
+#####--------------------------
+
+                inline          no inline
+
+.text           1f90            1be0            >       -3b0    (-944)
+.init.text      0ef8            0dd8            >       -120    (-288)
+[...]
+.pdr            0400            04c0            <       +0c0    (+192)
