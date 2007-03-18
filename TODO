@@ -7,7 +7,8 @@ Code corrections
 ----------------
 
 * use platform_device
-* get rid of driver version ?
+* use dev_xxx debugging routines?
+* get rid of driver version?
 * review IRQ storm w.r.t. DMA operations
-* remove debugging code ? [PARTIALLY DONE]
-* use io{read,write} functions ? what about readq ? [PARTIALLY DONE]
+* remove debugging code? [PARTIALLY DONE]
+* use io{read,write} functions? what about readq? [PARTIALLY DONE]

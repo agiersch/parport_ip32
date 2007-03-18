@@ -1,0 +1,104 @@
+##### parport_ax88796
+
+int xxx_probe (struct platform_device *)
+\_ kzalloc(...)
+\_ platform_get_resource(...)
+\_ request_mem_region(...)
+\_ ioremap(...)
+\_ platform_get_irq(...)
+\_ parport_register_port(...)
+\_ request_irq(...)
+\_ platform_set_drv_data(...)
+\_ parport_announce_port(...)
+
+int xxx_remove(struct platform_device *)
+\_ platform_get_drvdata
+\_ free_irq(...)
+\_ parport_remove_port(...)
+\_ iounmap(...)
+\_ release_resource(...)
+\_ kfree(...)
+
+int xxx_suspend(struct platform_device *, pm_message_t)
+int xxx_resume(struct platform_device *)
+#-> NULL if !CONFIG_PM
+
+static struct platform_driver axdrv = {
+        .driver = {
+                .name  = "xxx-pp",
+                .owner = THIS_MODULES,
+        },
+        .probe   = xxx_probe,
+        .remove  = xxx_remove,
+        .suspend = xxx_suspend,
+        .resume  = xxX_resume,
+};
+
+int xxx_init(void)
+\_ platform_driver_register(&axdrv)
+
+int xxx_exit(void)
+\_ platform_driver_unregister(&axdrv)
+
+module_init(xxx_init)
+module_exit(xxx_exit)
+
+//---> only register the driver???
+
+##### maceps2
+
+static struct platform_device *maceps2_device;
+
+static struct platform_driver maceps2_driver = {
+        .driver         = {
+                .name   = "maceps2",
+                .owner  = THIS_MODULE,
+        },
+        .probe          = maceps2_probe,
+        .remove         = __devexit_p(maceps2_remove),
+};
+
+int maceps2_probe(struct platform_device *)
+
+int maceps2_remove(struct platform_device *)
+
+int maceps2_init(void)
+\_ platform_driver_register(&maceps2_driver);
+\_ maceps2_device = platform_device_alloc("maceps2", -1);
+\_ platform_device_add(maceps2_device);
+
+void maceps2_exit(void)
+\_ platform_device_unregister(maceps2_device);
+\_ platform_driver_unregister(&maceps2_driver);
+
+module_init(maceps2_init);
+module_exit(maceps2_exit);
+
+
+##### ---
+
+
+struct platform_device {
+        const char      * name;
+        u32             id;
+        struct device   dev;
+        u32             num_resources;
+        struct resource * resource;
+};
+
+struct platform_driver {
+        int (*probe)(struct platform_device *);
+        int (*remove)(struct platform_device *);
+        void (*shutdown)(struct platform_device *);
+        int (*suspend)(struct platform_device *, pm_message_t state);
+        int (*suspend_late)(struct platform_device *, pm_message_t state);
+        int (*resume_early)(struct platform_device *);
+        int (*resume)(struct platform_device *);
+        struct device_driver driver;
+};
+
+
+/---
+register driver
+--------------
+
