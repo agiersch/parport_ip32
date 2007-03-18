@@ -100,7 +100,7 @@
 #include <linux/module.h>
 #include <linux/parport.h>
 #include <linux/sched.h>
-#include <linux/slab.h
+#include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <asm/io.h>
 #include <asm/ip32/ip32_ints.h>

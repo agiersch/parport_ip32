@@ -1,5 +1,6 @@
 v0.7 --
 
+	* Fix includes.
 	* Remove unused parport_ip32_dump_state().
 	* Remove explicit use of the inline keyword.  The compiler
 	  should know better when to inline functions.
