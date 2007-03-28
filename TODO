@@ -12,3 +12,10 @@ Code corrections
 * review IRQ storm w.r.t. DMA operations
 * remove debugging code? [PARTIALLY DONE]
 * use io{read,write} functions? what about readq? [PARTIALLY DONE]
+* use BIT() macro, once in bitops.h?
+
+Other corrections
+-----------------
+
+* use git to generate diffstats
+  see http://permalink.gmane.org/gmane.linux.ide/17279

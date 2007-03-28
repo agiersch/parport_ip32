@@ -77,7 +77,6 @@ module_exit(maceps2_exit);
 
 ##### ---
 
-
 struct platform_device {
         const char      * name;
         u32             id;
@@ -97,8 +96,6 @@ struct platform_driver {
         struct device_driver driver;
 };
 
-
-/---
 register driver
 --------------
 
