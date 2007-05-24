@@ -44,7 +44,7 @@
  *	peripheral supporting these extended mode, and cannot test them.
  *	If DMA mode works well, decide if support for PIO FIFO modes should be
  *	dropped.
- *	Find and use some io{read,write} equivalent for {read,write}q?
+ *	Convert to the new driver model.
  */
 
 /* The built-in parallel port on the SGI 02 workstation (a.k.a. IP32) is an
