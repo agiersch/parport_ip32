@@ -151,16 +151,27 @@ static void parport_ip32_dump_state(struct parport *p, char *str,
 #define parport_ip32_dump_state(...)	do { } while (0)
 #endif
 
-#endif /* !PARPORT_IP32_DEBUG_H */
-
-/*--- Inform (X)Emacs about preferred coding style ---------------------*/
 /*
- * Local Variables:
- * mode: c
- * c-file-style: "linux"
- * indent-tabs-mode: t
- * tab-width: 8
- * fill-column: 78
- * ispell-local-dictionary: "american"
- * End:
+ * CHECK_EXTRA_BITS - track and log extra bits
+ * @p:		pointer to &struct parport
+ * @b:		byte to inspect
+ * @m:		bit mask of authorized bits
+ *
+ * This is used to track and log extra bits that should not be there in
+ * parport_ip32_write_control() and parport_ip32_frob_control().  It is only
+ * defined if %DEBUG_PARPORT_IP32 >= 1.
  */
+#if DEBUG_PARPORT_IP32 >= 1
+#define CHECK_EXTRA_BITS(p, b, m)					\
+	do {								\
+		unsigned int __b = (b), __m = (m);			\
+		if (__b & ~__m)						\
+			pr_debug1(PPIP32 "%s: extra bits in %s(%s): "	\
+				  "0x%02x/0x%02x\n",			\
+				  (p)->name, __func__, #b, __b, __m);	\
+	} while (0)
+#else /* DEBUG_PARPORT_IP32 < 1 */
+#define CHECK_EXTRA_BITS(...)	do { } while (0)
+#endif
+
+#endif /* !PARPORT_IP32_DEBUG_H */

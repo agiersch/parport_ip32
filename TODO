@@ -8,10 +8,54 @@ Code corrections
 
 * use platform_device
 * use dev_xxx debugging routines?
-* get rid of driver version?
+        dev_printk(level, dev, format, ...)
+        dev_dbg(dev, format, ...)
+        dev_err(dev, format, ...)
+        dev_info(dev, format, ...)
+        dev_warn(dev, format, ...)
+        dev_notice(dev, format, ...)
 * review IRQ storm w.r.t. DMA operations
 * remove debugging code? [PARTIALLY DONE]
-* use BIT() macro, once in bitops.h?
+        pr_trace and pr_trace1
+* check printk's
+* remove continuateds printk in parport_ip32_probe_port()
+  something like this should do it:
+//-------------------------------------------------------------------------//
+	/* Print out what we found */
+#define printmode(x)	if (p->modes & PARPORT_MODE_##x)		\
+				s += scnprintf(mode + s, (sizeof mode) - s, \
+					       "%s%s",			\
+					       f++ ? "," : "", #x)
+	{
+		char irq[6 + 10 + 1];
+		char mode[5/*PCSPP*/ + 1 + 8/*TRISTATE*/ + 1 + 6/*COMPAT*/ +
+			  1 + 3/*EPP*/ + 1 + 3/*ECP*/ + 1 + 3/*DMA*/ + 1];
+		unsigned int s = 0;
+		unsigned int f = 0;
+
+		if (p->irq == PARPORT_IRQ_NONE)
+			irq[0] = '\0';
+		else
+			snprintf(irq, sizeof irq, ", irq %d", p->irq);
+
+		mode[0] = '\0';
+		printmode(PCSPP);
+		printmode(TRISTATE);
+		printmode(COMPAT);
+		printmode(EPP);
+		printmode(ECP);
+		printmode(DMA);
+
+		printk(KERN_INFO "%s: SGI IP32 at 0x%lx (0x%lx)%s [%s]\n"
+		       p->name, p->base, p->base_hi, irq, mode);
+	}
+#undef printmode
+//-------------------------------------------------------------------------//
+
+* check dev parameter for *dma*, *irq* or *parport*
+* check error path in probe_port (dma_unregister)
+* use alloc irq/dma_map w.r.t. pdev (HOW?)
+* remove EXPERIMENTAL tag
 
 Other corrections
 -----------------

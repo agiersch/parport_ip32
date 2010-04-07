@@ -1,5 +1,10 @@
 v0.7 --
 
+	* Add module alias to parport_lowlevel.
+	* Check return value of dma_map_single, and revert to PIO mode if
+	  parport_ip32_dma_start fails.
+	* Remove (X)Emacs local variables list.
+	* Centralize driver version to ease maintenance.
 	* Fix includes.
 	* Remove unused parport_ip32_dump_state().
 	* Remove explicit use of the inline keyword.  The compiler
