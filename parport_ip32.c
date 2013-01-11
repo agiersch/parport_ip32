@@ -2002,7 +2002,7 @@ static __init int parport_ip32_probe_port(struct platform_device *pdev)
 	}
 #undef printmode
 	printk("]\n");
-	
+
 	parport_announce_port(p);
 	pdev->dev.platform_data = p;
 	return 0;
@@ -2093,4 +2093,3 @@ MODULE_PARM_DESC(features,
 		 ", bit 4: hardware ECP mode");
 
 MODULE_ALIAS("parport_lowlevel");
- 
